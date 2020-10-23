@@ -39,7 +39,6 @@ from keras.datasets import mnist
  
 # 4. Load pre-shuffled MNIST data into train and test sets
 (X_train, y_train), (X_test, y_test) = mnist.load_data()
-import pdb;pdb.set_trace()
 
 # 5. Preprocess input data
 X_train = X_train.reshape(X_train.shape[0], 1, 28, 28)

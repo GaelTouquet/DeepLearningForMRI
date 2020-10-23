@@ -1,3 +1,6 @@
+import h5py
+import keras
+
 class Agent(object):
     """
     Class to hold informations about an Agent.
@@ -28,3 +31,9 @@ class Agent(object):
         """
         self.evaluation_set = evaluation_set
         self.evaluation = self.network.evaluate(evaluation_set.inputs(),evaluation_set.outputs())
+
+    def save(self, path):
+        self.model.save(path)
+
+    def load(self, path):
+        self.model = keras.models.load_model(path)
