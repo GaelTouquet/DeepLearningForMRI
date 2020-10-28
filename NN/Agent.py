@@ -2,10 +2,12 @@ import h5py
 import tensorflow.keras as keras
 import tensorflow as tf
 
+
 class Agent(object):
     """
     Class to hold informations about an Agent.
     """
+
     def __init__(self, architecture, train_generator, val_generator, name):
         """
         architecture = keras model
@@ -22,10 +24,12 @@ class Agent(object):
         """
         Train the model.
         """
-        tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=self.logdir, histogram_freq=1)
-        self.history = self.network.fit_generator(self.train_generator,validation_data=self.val_generator,epochs=5,callbacks=[tensorboard_callback])
+        tensorboard_callback = tf.keras.callbacks.TensorBoard(
+            log_dir=self.logdir, histogram_freq=1)
+        self.history = self.network.fit_generator(
+            self.train_generator, validation_data=self.val_generator, epochs=5, callbacks=[tensorboard_callback])
 
-    def process(self, test_generator,verbose=0):
+    def process(self, test_generator, verbose=0):
         """
         Predict the output of the model evaluated on the data supplied by test_generator.
         """
@@ -36,7 +40,8 @@ class Agent(object):
         Evaluate the network on a given set
         """
         self.evaluation_set = evaluation_set
-        self.evaluation = self.network.evaluate(evaluation_set.inputs(),evaluation_set.outputs())
+        self.evaluation = self.network.evaluate(
+            evaluation_set.inputs(), evaluation_set.outputs())
 
     def save(self, path):
         """

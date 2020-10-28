@@ -1,5 +1,6 @@
 import numpy as np
 
+
 def ifft(kdata):
     """
     Simplifies the use of ifft.
@@ -7,6 +8,7 @@ def ifft(kdata):
     tmp = np.fft.ifftshift(kdata)
     tmp = np.fft.ifft2(tmp)
     return np.fft.fftshift(tmp)
+
 
 def crop(img):
     """
@@ -16,9 +18,11 @@ def crop(img):
     xend = int(img.shape[0]-xstart)
     ystart = int((img.shape[1]-320)/2)
     yend = int(img.shape[1]-ystart)
-    if (xend-xstart!=320) or (yend-ystart!=320):
-        import pdb;pdb.set_trace()
-    return img[xstart:xend,ystart:yend]
+    if (xend-xstart != 320) or (yend-ystart != 320):
+        import pdb
+        pdb.set_trace()
+    return img[xstart:xend, ystart:yend]
+
 
 def rss(imgs):
     """
@@ -26,7 +30,8 @@ def rss(imgs):
     """
     return np.sqrt(np.sum(np.square(abs(imgs)), axis=0))
 
-def image_from_kspace(kdata,multicoil=True,mask=None):
+
+def image_from_kspace(kdata, multicoil=True, mask=None):
     """
     Provides the image from the given kdata. Also applies the mask if given one.
     """

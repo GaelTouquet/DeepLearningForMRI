@@ -68,7 +68,7 @@ def unet(pretrained_weights = None,input_size = (256,256,1)):
     return model
 
 name = 'singlecoil_acc2rand'
-batch_size = 2
+batch_size = 5
 print('preparing data')
 input_mask = RandomMask(acceleration=5,seed=0xdeadbeef)
 preprocess_data('D:\\fastMRI_DATA\\singlecoil_train\\',name,'train',input_mask=input_mask)
