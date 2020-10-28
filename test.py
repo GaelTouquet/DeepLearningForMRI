@@ -3,17 +3,15 @@
 import numpy as np 
 np.random.seed(123)  # for reproducibility
 import os
-import skimage.io as io
-import skimage.transform as trans
 import numpy as np
-from keras.models import *
-from keras.layers import *
-from keras.optimizers import *
-from keras.callbacks import ModelCheckpoint, LearningRateScheduler
-from keras import backend as keras
+from tensorflow.keras.models import *
+from tensorflow.keras.layers import *
+from tensorflow.keras.optimizers import *
+from tensorflow.keras.callbacks import ModelCheckpoint, LearningRateScheduler
+from tensorflow.keras import backend as keras
 
-from DeepLearningForMRI.NN.Inputs import NNSet
-from DeepLearningForMRI.NN.Agent import Agent
+from NN.Inputs import preprocess_data, DataGenerator, RandomMask
+from NN.Agent import Agent
 
  
 def unet(pretrained_weights = None,input_size = (256,256,1)):
@@ -68,8 +66,20 @@ def unet(pretrained_weights = None,input_size = (256,256,1)):
     	model.load_weights(pretrained_weights)
 
     return model
-print('importing data')
-myset = NNSet('/mnt/d/NN_DATA/fastMRI/test/test.h5',input_shape=(320,320,1))
+
+name = 'singlecoil_acc2rand'
+batch_size = 2
+print('preparing data')
+input_mask = RandomMask(acceleration=5,seed=0xdeadbeef)
+preprocess_data('D:\\fastMRI_DATA\\singlecoil_train\\',name,'train',input_mask=input_mask)
+preprocess_data('D:\\fastMRI_DATA\\singlecoil_val\\',name,'val',input_mask=input_mask)
+
+
+print('preparing generators')
+train_gen = DataGenerator(name.format('train'),cat='train',batch_size=batch_size)
+val_gen = DataGenerator(name.format('val'),cat='val',batch_size=batch_size)
+# test_gen = DataGenerator(name.format('val'),batch_size=batch_size)
+
 
 print('compiling model')
 myunet = unet(input_size=(320,320,1))
@@ -77,7 +87,8 @@ myunet.compile(loss="mean_squared_error",
               optimizer='adam',
               metrics=['mse'])
 
-print('enabling monitoringmonitoring')
-myagent = Agent(myunet,myset)
+myagent = Agent(myunet,train_gen,val_gen,name)
 print('starting training')
-myagent.train(batch_size=1, epochs=2,verbose=1)
+myagent.train(batch_size=batch_size, epochs=5,verbose=1)
+print('saving agent')
+myagent.save('D:\\NN_DATA\\{}\\agent'.format(name))
