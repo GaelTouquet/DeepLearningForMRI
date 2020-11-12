@@ -20,20 +20,20 @@ class Agent(object):
         self.val_generator = val_generator
         self.logdir = 'D:\\NN_DATA\\{}\\log'.format(name)
 
-    def train(self, batch_size, epochs, verbose=0):
+    def train(self, epochs, verbose=0):
         """
         Train the model.
         """
         tensorboard_callback = tf.keras.callbacks.TensorBoard(
             log_dir=self.logdir, histogram_freq=1)
         self.history = self.network.fit_generator(
-            self.train_generator, validation_data=self.val_generator, epochs=5, callbacks=[tensorboard_callback])
+            self.train_generator, validation_data=self.val_generator, epochs=epochs, callbacks=[tensorboard_callback])#
 
-    def process(self, test_generator, verbose=0):
+    def test(self, test_set, batch_size=5, verbose=0):
         """
         Predict the output of the model evaluated on the data supplied by test_generator.
         """
-        return self.network.predict_generator(test_generator, verbose=verbose)
+        return self.network.predict(test_set, batch_size=batch_size, verbose=verbose)
 
     def evaluate(self, evaluation_set):
         """

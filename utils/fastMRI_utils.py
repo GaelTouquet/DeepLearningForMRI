@@ -31,14 +31,30 @@ def rss(imgs):
     return np.sqrt(np.sum(np.square(abs(imgs)), axis=0))
 
 
-def image_from_kspace(kdata, multicoil=True, mask=None):
+def image_from_kspace(kdata, multicoil=True, mask=None, normalise=False):
     """
     Provides the image from the given kdata. Also applies the mask if given one.
     """
-    if mask:
-        kdata = mask(kdata)
-    image = crop(ifft(kdata))
     if multicoil:
-        return rss(image)
+        if mask:
+             the_mask = mask.get_mask(kdata[0])
+        images = []
+        for coil in kdata:
+            if mask:
+                image = the_mask * coil + 0.0
+            else:
+                image = coil
+            images.append(crop(ifft(image)))
+        images = np.array(images)
+        image = rss(images)
     else:
-        return abs(image)
+        if mask:
+            data = mask(kdata)
+        else:
+            data = kdata
+        image = abs(crop(ifft(data)))
+
+    if normalise:
+        image *= 1./np.amax(image)
+
+    return image

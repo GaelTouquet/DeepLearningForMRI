@@ -1,7 +1,7 @@
 import os
 import numpy as np
 import h5py
-import pickle
+import json
 from tensorflow.keras.utils import Sequence
 from utils.fastMRI_utils import image_from_kspace
 
@@ -25,19 +25,33 @@ class RandomMask(object):
 
     def __call__(self, kspace):
         """
-        kspace = k-space distribution of points that needs to be maskes. Can be 2D or 3D.
+        kspace = k-space distribution of points that needs to be masked. Can be 2D or 3D.
         """
-        mask = self.rng.uniform(size=kspace.shape) < (1/self.acceleration)
+        mask = self.get_mask(kspace)
         return kspace * mask.astype(np.float) + 0.0
 
+    def get_mask(self, kspace):
+        """
+        kspace = k-space distribution of points that needs to be masked. Can be 2D or 3D.
+        """
+        return self.rng.uniform(size=kspace.shape) < (1/self.acceleration)
 
-def preprocess_data(path, name, cat, input_mask=None, output_mask=None, multicoil=False):
+class CenteredRandomMask(RandomMask):
+    """
+    Same as RandomMask but ensures center of kspace is fully sampled
+    """
+    pass
+
+
+def preprocess_data(path, name, cat, input_mask=None, output_mask=None, multicoil=False, normalise=False, fraction=None):
     """
     Prepares the work directory, and prepares data into easy-to-used, eventually masked data.
     """
-    index_list = []
+    index_dict = {}
     files = [f for f in os.listdir(path) if (
         os.path.isfile(os.path.join(path, f)) and ('.h5' in f))]
+    if fraction:
+        files = files[:int(np.floor(fraction*len(files)))]
     if not os.path.isdir('D:\\NN_DATA\\{}'.format(name)):
         os.mkdir('D:\\NN_DATA\\{}'.format(name))
     if not os.path.isdir('D:\\NN_DATA\\{}\\{}'.format(name, cat)):
@@ -46,26 +60,43 @@ def preprocess_data(path, name, cat, input_mask=None, output_mask=None, multicoi
         if os.path.isfile('D:\\NN_DATA\\{}\\{}\\{}'.format(name, cat, f)):
             continue
         h5f = h5py.File(os.path.join(path, f), 'r')
-        if ('kspace' not in h5f) or ('reconstruction_esc' not in h5f):
+        if ('kspace' not in h5f):
             continue
-        inputs = np.empty(h5f['reconstruction_esc'].shape, dtype=np.float)
-        outputs = np.empty(h5f['reconstruction_esc'].shape, dtype=np.float)
+        if ('reconstruction_esc' not in h5f):
+            shape = (h5f['kspace'].shape[0], 320, 320)
+        else:
+            shape = h5f['reconstruction_esc'].shape
+        inputs = np.empty(shape, dtype=np.float)
+        outputs = np.empty(shape, dtype=np.float)
+        index_dict['D:\\NN_DATA\\{}\\{}\\{}'.format(name, cat, f)] = h5f['kspace'].shape[0]
         for i, slic in enumerate(h5f['kspace']):
-            index_list.append(
-                ['D:\\NN_DATA\\{}\\{}\\{}'.format(name, cat, f), i])
             inputs[i] = image_from_kspace(
-                slic, multicoil=multicoil, mask=input_mask)
+                slic, multicoil=multicoil, mask=input_mask,normalise=normalise)
             outputs[i] = image_from_kspace(
-                slic, multicoil=multicoil, mask=output_mask)
+                slic, multicoil=multicoil, mask=output_mask,normalise=normalise)
         h5f.close()
         outfile = h5py.File(
             'D:\\NN_DATA\\{}\\{}\\{}'.format(name, cat, f), 'w')
         outfile.create_dataset('inputs', data=inputs)
         outfile.create_dataset('outputs', data=outputs)
         outfile.close()
-    with open('D:\\NN_DATA\\{}\\{}\\index.pck'.format(name, cat), 'wb') as fp:
-        pickle.dump(index_list, fp)
+    if index_dict != {}:
+        with open('D:\\NN_DATA\\{}\\{}\\index.json'.format(name, cat), 'w') as fp:
+            json.dump(index_dict, fp)
 
+def test_data(path,agent,batch_size=5):
+    """
+    Tests the agent on the data in the given path.
+    """
+    files = [f for f in os.listdir(path) if (
+        os.path.isfile(os.path.join(path, f)) and ('.h5' in f))]
+        
+    for f in files:
+        h5f = h5py.File(os.path.join(path, f), 'r+')
+        inputs = np.reshape(h5f['inputs'],(*h5f['inputs'].shape,1))
+        test_outputs = agent.test(inputs,batch_size=batch_size)
+        h5f.create_dataset('tests',data=test_outputs)
+        h5f.close()
 
 class DataGenerator(Sequence):
     """
@@ -78,8 +109,13 @@ class DataGenerator(Sequence):
         """
         self.dim = dim
         self.batch_size = batch_size
-        with open('D:\\NN_DATA\\{}\\{}\\index.pck'.format(name, cat), 'rb') as fp:
-            self.list_IDs = pickle.load(fp)
+        self.list_IDs = []
+        with open('D:\\NN_DATA\\{}\\{}\\index.json'.format(name, cat), 'r') as fp:
+            index_dict = json.load(fp)
+            for fname in index_dict:
+                for i in range(index_dict[fname]):
+                    self.list_IDs.append([fname,i])
+            fp.close()
         self.n_channels = n_channels
         self.shuffle = shuffle
         self.on_epoch_end()
