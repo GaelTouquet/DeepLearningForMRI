@@ -1,7 +1,73 @@
 from tensorflow.keras import backend as keras
 from tensorflow.keras.callbacks import ModelCheckpoint, LearningRateScheduler
-from tensorflow.keras.layers import Input, Conv2D, MaxPooling2D, Dense, Dropout, concatenate, UpSampling2D, Lambda
+from tensorflow.keras.layers import Input, Conv2D, MaxPooling2D, Dense, Dropout, concatenate, UpSampling2D, Lambda, Add
 from tensorflow.keras.models import Model
+import tensorflow.dtypes.complex as cplx
+import tensorflow.signal.ifft2d as ifft2d
+from tensorflow.math import real, imag
+import tf.stack as stack
+
+def test(input_shape=(640, 368, 2)):
+    """
+    docstring
+    """
+    inputs = Input(shape=input_shape)
+
+    # Block1
+    Block1 = Conv2D(filters = 128, kernel_size = (5,5), activation='relu', padding = 'same')(input)
+    Block1 = Conv2D(filters = 128, kernel_size = (5,5), activation='relu', padding = 'same')(Block1)
+    Block1 = Conv2D(filters = 128, kernel_size = (5,5), activation='relu', padding = 'same')(Block1)
+
+    Block1 = Add(input,Block1)
+
+    # Block2
+    Block2 = Conv2D(filters = 128, kernel_size = (5,5), activation='relu', padding = 'same')(Block1)
+    Block2 = Conv2D(filters = 128, kernel_size = (5,5), activation='relu', padding = 'same')(Block2)
+    Block2 = Conv2D(filters = 128, kernel_size = (5,5), activation='relu', padding = 'same')(Block2)
+
+    Block2 = Add(Block1,Block2)
+
+    # Ifft
+    def ifft_function(x):
+        complexes = ifft2d(cplx(x[0],x[1]))
+        return stack([real(complexes),imag(complexes)],axis=-1)
+    ifft = Lambda(function=ifft_function)
+
+    #unet
+    
+    conv1 = Conv2D(32, 3, activation='relu', padding='same',
+                   kernel_initializer='he_normal')(ifft)
+    conv1 = Conv2D(32, 3, activation='relu', padding='same',
+                   kernel_initializer='he_normal')(conv1)
+    pool1 = MaxPooling2D(pool_size=(2, 2))(conv1)
+    conv2 = Conv2D(64, 3, activation='relu', padding='same',
+                   kernel_initializer='he_normal')(pool1)
+    conv2 = Conv2D(64, 3, activation='relu', padding='same',
+                   kernel_initializer='he_normal')(conv2)
+    pool2 = MaxPooling2D(pool_size=(2, 2))(conv2)
+    conv3 = Conv2D(128, 3, activation='relu', padding='same',
+                   kernel_initializer='he_normal')(pool2)
+    conv3 = Conv2D(128, 3, activation='relu', padding='same',
+                   kernel_initializer='he_normal')(conv3)
+    conv3 = Conv2D(256, 3, activation='relu', padding='same',
+                   kernel_initializer='he_normal')(conv1)
+    up1 = Conv2D(128, 3, activation='relu', padding='same',
+                 kernel_initializer='he_normal')(UpSampling2D(size=(2, 2))(conv3))
+    merge1 = concatenate([conv2, up1], axis=3)
+    conv4 = Conv2D(64, 3, activation='relu', padding='same',
+                   kernel_initializer='he_normal')(merge1)
+    up2 = Conv2D(64, 3, activation='relu', padding='same',
+                 kernel_initializer='he_normal')(UpSampling2D(size=(2, 2))(conv4))
+    merge2 = concatenate([conv1, up2], axis=3)
+    conv5 = Conv2D(32, 3, activation='relu', padding='same',
+                   kernel_initializer='he_normal')(merge2)
+    conv5 = Conv2D(32, 3, activation='relu', padding='same',
+                   kernel_initializer='he_normal')(conv5)
+    outputs = Conv2D(1, 1, activation='relu', padding='same',
+            kernel_initializer='he_normal')(conv5)
+    model = Model(inputs=inputs,outputs=outputs)
+    return model
+
 
 def convolutional_autoencoder(pretrained_weights=None, input_shape=(320,320,1)):
     input = Input(shape=input_shape)

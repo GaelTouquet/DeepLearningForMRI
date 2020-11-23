@@ -1,7 +1,7 @@
 # from MRI.DataTypes.KSpace.KData import KData
 
 from NN.Agent import Agent
-from NN.Inputs import preprocess_data, DataGenerator, RandomMask, test_data
+from NN.Inputs import preprocess_data, DataGenerator, RandomMask, test_data, CenteredRandomMask
 from NN.architectures import myunet as unet
 from NN.architectures import convolutional_autoencoder
 import tensorflow as tf
@@ -21,11 +21,11 @@ def ssim(y1,y2):
 
 batch_size = 5
 epochs = 20
-acceleration = 10
+acceleration = 4
 coil_type = 'single' # 'single' or 'multi'
 fraction = 1
-tag = 'propertest'
-input_mask = RandomMask(acceleration=acceleration, seed=0xdeadbeef)
+tag = 'centeredmasktest'
+input_mask = CenteredRandomMask(acceleration=acceleration, center_fraction=(24/360), seed=0xdeadbeef)
 model = unet()#tf.keras.models.load_model('D:\\NN_DATA\\singlecoil_acc1_unittest2\\agentNov_05_16_50',custom_objects={'ssim':ssim})#unet()
 
 timestamp = time.strftime("%h_%d_%H_%M")
@@ -39,9 +39,9 @@ preprocess_data('D:\\fastMRI_DATA\\{}coil_train\\'.format(coil_type),
 print('preparing val data')
 preprocess_data('D:\\fastMRI_DATA\\{}coil_val\\'.format(coil_type),
                 name, 'val', input_mask=input_mask,multicoil=(coil_type=='multi'),normalise=True,fraction=fraction)
-print('preparing test data')
-preprocess_data('D:\\fastMRI_DATA\\{}coil_test_v2\\'.format(coil_type),
-                name, 'test{}'.format(timestamp), input_mask=input_mask,multicoil=(coil_type=='multi'),normalise=True,fraction=fraction)
+# print('preparing test data')
+# preprocess_data('D:\\fastMRI_DATA\\{}coil_test_v2\\'.format(coil_type),
+#                 name, 'test{}'.format(timestamp), input_mask=input_mask,multicoil=(coil_type=='multi'),normalise=True,fraction=fraction)
 
 
 print('preparing generators')
@@ -63,6 +63,6 @@ myagent = Agent(model, train_gen, val_gen, name)
 print('starting training')
 myagent.train(epochs=epochs, verbose=1)
 print('starting testing')
-test_data('D:\\NN_DATA\\{}\\test{}'.format(name,timestamp),myagent)
+test_data('D:\\NN_DATA\\{}\\val{}'.format(name,timestamp),myagent)
 print('saving agent')
 myagent.save('D:\\NN_DATA\\{}\\agent{}'.format(name,timestamp))

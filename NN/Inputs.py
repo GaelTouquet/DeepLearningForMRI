@@ -40,8 +40,34 @@ class CenteredRandomMask(RandomMask):
     """
     Same as RandomMask but ensures center of kspace is fully sampled
     """
-    pass
+    def __init__(self,acceleration, center_fraction, seed=None):
+        """
+        docstring
+        """
+        self.acceleration = acceleration
+        self.rng = np.random.RandomState()
+        if seed:
+            self.rng.seed(seed)
+        self.center_fraction = center_fraction
 
+    def get_mask(self, kspace):
+        """
+        kspace = k-space distribution of points that needs to be masked. Can be 2D.
+        expected to have regular shape (shape[0]==shape[1])
+        """
+        #TODO code this better, generalise to ND
+        size = kspace.shape[0]*kspace.shape[1]
+        num_low_freqs = int(round(kspace.shape[0]*self.center_fraction))
+        prob = (size/(size-(num_low_freqs**2)))/self.acceleration
+
+        mask = self.rng.uniform(size=kspace.shape) < prob
+        low = (kspace.shape[0] - num_low_freqs)/2
+        high = (kspace.shape[0] + num_low_freqs)/2
+        for i in range(kspace.shape[0]):
+            for j in range(kspace.shape[1]):
+                if i >= low and i<=high and j>=low and j<= high:
+                    mask[i,j] = True
+        return mask
 
 def preprocess_data(path, name, cat, input_mask=None, output_mask=None, multicoil=False, normalise=False, fraction=None):
     """
