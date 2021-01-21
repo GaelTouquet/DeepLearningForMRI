@@ -3,112 +3,126 @@ import numpy as np
 import h5py
 import json
 from tensorflow.keras.utils import Sequence
-from utils.fastMRI_utils import image_from_kspace
+from utils.fastMRI_utils import image_from_kspace, crop, fft, ifft
+
+# import matplotlib.pyplot as plt
 
 # TODO use mongoDB to handle file locations
 
+def prepare_image(kdata,crop_size=(320,320), normalise=True,mask=None):
 
-class RandomMask(object):
-    """
-    Class that holds and applies a completely random k-space mask on images.
-    """
+    if normalise:
+        kdata*=1.e6
 
-    def __init__(self, acceleration, seed=None):
-        """
-        acceleration = acceleration factor for the masking, if the acceleration is 2, then half the k-space points will not be masked, if it is 5 then only 20 % of the points will not be masked.
-        seed = rng seed for reproducibility.
-        """
-        self.acceleration = acceleration
-        self.rng = np.random.RandomState()
-        if seed:
-            self.rng.seed(seed)
+    image = ifft(kdata)
 
-    def __call__(self, kspace):
-        """
-        kspace = k-space distribution of points that needs to be masked. Can be 2D or 3D.
-        """
-        mask = self.get_mask(kspace)
-        return kspace * mask.astype(np.float) + 0.0
+    if crop:
+        image_clean = crop(image,size=crop_size)
+        # if normalise:
+        #     image_clean *= 1./np.amax(image)
+        kdata = fft(image_clean)
+    
+    kdata_clean = kdata
 
-    def get_mask(self, kspace):
-        """
-        kspace = k-space distribution of points that needs to be masked. Can be 2D or 3D.
-        """
-        return self.rng.uniform(size=kspace.shape) < (1/self.acceleration)
+    if mask:
+        kdata = mask(kdata_clean)
+    else:
+        kdata = kdata_clean
+    
+    # fig, axs = plt.subplots(2,3, figsize=(20, 20))
+    # fig.subplots_adjust(hspace=0.1, wspace=0.1)
+    # axs = axs.ravel()
+    # axs[0].imshow(np.real(ifft(kdata)),cmap='gray')
+    # axs[1].imshow(np.real(ifft(kdata_clean)),cmap='gray')
+    # axs[2].imshow(np.real(image_clean),cmap='gray')
+    # axs[3].imshow(np.imag(ifft(kdata)),cmap='gray')
+    # axs[4].imshow(np.imag(ifft(kdata_clean)),cmap='gray')
+    # axs[5].imshow(np.imag(image_clean),cmap='gray')
+    # plt.show()
 
-class CenteredRandomMask(RandomMask):
-    """
-    Same as RandomMask but ensures center of kspace is fully sampled
-    """
-    def __init__(self,acceleration, center_fraction, seed=None):
-        """
-        docstring
-        """
-        self.acceleration = acceleration
-        self.rng = np.random.RandomState()
-        if seed:
-            self.rng.seed(seed)
-        self.center_fraction = center_fraction
+    return kdata, kdata_clean, image_clean
+    
 
-    def get_mask(self, kspace):
-        """
-        kspace = k-space distribution of points that needs to be masked. Can be 2D.
-        expected to have regular shape (shape[0]==shape[1])
-        """
-        #TODO code this better, generalise to ND
-        size = kspace.shape[0]*kspace.shape[1]
-        num_low_freqs = int(round(kspace.shape[0]*self.center_fraction))
-        prob = (size/(size-(num_low_freqs**2)))/self.acceleration
-
-        mask = self.rng.uniform(size=kspace.shape) < prob
-        low = (kspace.shape[0] - num_low_freqs)/2
-        high = (kspace.shape[0] + num_low_freqs)/2
-        for i in range(kspace.shape[0]):
-            for j in range(kspace.shape[1]):
-                if i >= low and i<=high and j>=low and j<= high:
-                    mask[i,j] = True
-        return mask
-
-def preprocess_data(path, name, cat, input_mask=None, output_mask=None, multicoil=False, normalise=False, fraction=None):
+def prepare_datasets(datapath, workdirpath, dataset_type, 
+    input_mask=None, output_mask=None,
+    multicoil=False, normalise=False, 
+    fraction=None, n_slice_per_file=None,
+    input_shape=(320,320),
+    intermediate_shape=None,
+    output_shape=None,
+    n_channels_in=2,
+    n_channels_intermediate=2,
+    n_channels_out=2):
     """
     Prepares the work directory, and prepares data into easy-to-used, eventually masked data.
     """
+    if intermediate_shape is None:
+        intermediate_shape = input_shape
+    if output_shape is None:
+        output_shape = input_shape
+
+
     index_dict = {}
-    files = [f for f in os.listdir(path) if (
-        os.path.isfile(os.path.join(path, f)) and ('.h5' in f))]
+
+    files = [f for f in os.listdir(datapath) if (
+        os.path.isfile(os.path.join(datapath, f)) and ('.h5' in f))]
     if fraction:
         files = files[:int(np.floor(fraction*len(files)))]
-    if not os.path.isdir('D:\\NN_DATA\\{}'.format(name)):
-        os.mkdir('D:\\NN_DATA\\{}'.format(name))
-    if not os.path.isdir('D:\\NN_DATA\\{}\\{}'.format(name, cat)):
-        os.mkdir('D:\\NN_DATA\\{}\\{}'.format(name, cat))
+
+    output_dir = os.path.join(workdirpath,dataset_type)
+    if not os.path.isdir(output_dir):
+         os.mkdir(output_dir)
+
     for f in files:
-        if os.path.isfile('D:\\NN_DATA\\{}\\{}\\{}'.format(name, cat, f)):
+        filepath = os.path.join(output_dir,f)
+        if os.path.isfile(filepath):
             continue
-        h5f = h5py.File(os.path.join(path, f), 'r')
+        h5f = h5py.File(os.path.join(datapath, f), 'r')
         if ('kspace' not in h5f):
             continue
-        if ('reconstruction_esc' not in h5f):
-            shape = (h5f['kspace'].shape[0], 320, 320)
+
+        if n_slice_per_file is None:
+            n_slices = h5f['kspace'].shape[0]
         else:
-            shape = h5f['reconstruction_esc'].shape
-        inputs = np.empty(shape, dtype=np.float)
-        outputs = np.empty(shape, dtype=np.float)
-        index_dict['D:\\NN_DATA\\{}\\{}\\{}'.format(name, cat, f)] = h5f['kspace'].shape[0]
+            n_slices = n_slice_per_file
+        # inputs = np.empty((h5f['kspace'].shape[0], *image_shape,2), dtype=np.float)
+        # outputs = np.empty((h5f['kspace'].shape[0], *image_shape,2), dtype=np.float)#carefull here 1 channel for abs(cplx)
+        # intermediate_outputs = np.empty((h5f['kspace'].shape[0], *image_shape,2), dtype=np.float)
+        # index_dict['D:\\NN_DATA\\{}\\{}\\{}'.format(name, cat, f)] = h5f['kspace'].shape[0]
+        inputs = np.empty((n_slices, *input_shape,n_channels_in), dtype=np.float)
+        intermediate_outputs = np.empty((n_slices, *intermediate_shape,n_channels_intermediate), dtype=np.float)
+        outputs = np.empty((n_slices, *output_shape,n_channels_out), dtype=np.float)#carefull here 1 channel for abs(cplx)
+        index_dict[filepath] = n_slices
+
+        k = 0
+        imin = int(np.floor(h5f['kspace'].shape[0]/2 - n_slices/2))
+        imax = imin + n_slices
         for i, slic in enumerate(h5f['kspace']):
-            inputs[i] = image_from_kspace(
-                slic, multicoil=multicoil, mask=input_mask,normalise=normalise)
-            outputs[i] = image_from_kspace(
-                slic, multicoil=multicoil, mask=output_mask,normalise=normalise)
+            if i<imin or i>=imax:
+                continue
+            kdata, kdata_clean, image = prepare_image(slic, crop_size=input_shape,normalise=normalise,mask=input_mask)
+            inputs[k,:,:,0] = np.real(kdata)
+            inputs[k,:,:,1] = np.imag(kdata)
+
+            intermediate_outputs[k,:,:,0] = np.real(kdata_clean)
+            intermediate_outputs[k,:,:,1] = np.imag(kdata_clean)
+            # outputs[k,:,:,0] = np.abs(image)
+            if n_channels_out ==1:
+                outputs[k,:,:,0] = np.abs(image)
+            else:
+                outputs[k,:,:,0] = np.abs(image)
+                outputs[k,:,:,1] = np.angle(image)
+            k+=1
         h5f.close()
-        outfile = h5py.File(
-            'D:\\NN_DATA\\{}\\{}\\{}'.format(name, cat, f), 'w')
+        outfile = h5py.File(filepath,'w')
         outfile.create_dataset('inputs', data=inputs)
+        outfile.create_dataset('intermediate_outputs', data=intermediate_outputs)
         outfile.create_dataset('outputs', data=outputs)
         outfile.close()
-    if index_dict != {}:
-        with open('D:\\NN_DATA\\{}\\{}\\index.json'.format(name, cat), 'w') as fp:
-            json.dump(index_dict, fp)
+    indexfile_path = os.path.join(output_dir,'index.json')
+    with open(indexfile_path, 'w') as fp:
+        json.dump(index_dict, fp)
+    return indexfile_path
 
 def test_data(path,agent,batch_size=5):
     """
@@ -119,7 +133,7 @@ def test_data(path,agent,batch_size=5):
         
     for f in files:
         h5f = h5py.File(os.path.join(path, f), 'r+')
-        inputs = np.reshape(h5f['inputs'],(*h5f['inputs'].shape,1))
+        inputs = np.reshape(h5f['inputs'],h5f['inputs'].shape)#np.reshape(h5f['inputs'],(h5f['inputs'].shape[0],*indim))
         test_outputs = agent.test(inputs,batch_size=batch_size)
         h5f.create_dataset('tests',data=test_outputs)
         h5f.close()
@@ -129,20 +143,22 @@ class DataGenerator(Sequence):
     Generates data for Keras.
     """
 
-    def __init__(self, name, cat, batch_size=32, dim=(320, 320), n_channels=1, shuffle=True):
+    def __init__(self, indexfile_path, batch_size=32, indim=(320, 320,2), outdim=(320, 320,2), n_channels_in=1, n_channels_out=1, shuffle=True):
         """
         Initialization.
         """
-        self.dim = dim
+        self.indim = indim
+        self.outdim = outdim
         self.batch_size = batch_size
         self.list_IDs = []
-        with open('D:\\NN_DATA\\{}\\{}\\index.json'.format(name, cat), 'r') as fp:
+        with open(indexfile_path, 'r') as fp:
             index_dict = json.load(fp)
             for fname in index_dict:
                 for i in range(index_dict[fname]):
                     self.list_IDs.append([fname,i])
             fp.close()
-        self.n_channels = n_channels
+        self.n_channels_in = n_channels_in
+        self.n_channels_out = n_channels_out
         self.shuffle = shuffle
         self.on_epoch_end()
 
@@ -181,10 +197,12 @@ class DataGenerator(Sequence):
         """
         # X : (n_samples, *dim, n_channels)
         # Initialization
-        X = np.empty((self.batch_size, *self.dim,
-                      self.n_channels), dtype=np.float)
-        y = np.empty((self.batch_size, *self.dim,
-                      self.n_channels), dtype=np.float)
+        X = np.empty((self.batch_size, *self.indim,
+                      self.n_channels_in), dtype=np.float)
+        intermediate_y = np.empty((self.batch_size, *self.indim,
+                      self.n_channels_in), dtype=np.float)
+        y = np.empty((self.batch_size, *self.outdim,
+                      self.n_channels_out), dtype=np.float)
 
         # Generate data
         f = h5py.File(list_IDs_temp[0][0], 'r')
@@ -193,9 +211,8 @@ class DataGenerator(Sequence):
             if f.filename != ID[0]:
                 f.close()
                 f = h5py.File(ID[0], 'r')
-            X[i] = np.reshape(f['inputs'][ID[1]], (*self.dim, self.n_channels))
-            y[i] = np.reshape(f['outputs'][ID[1]],
-                              (*self.dim, self.n_channels))
+            X[i] = f['inputs'][ID[1]]#np.reshape(f['inputs'][ID[1]], (*self.indim, self.n_channels_in))
+            intermediate_y[i] = f['intermediate_outputs'][ID[1]]#np.reshape(f['intermediate_outputs'][ID[1]], (*self.indim, self.n_channels_in))
+            y[i] = f['outputs'][ID[1]]#np.reshape(f['outputs'][ID[1]], (*self.outdim, self.n_channels_out))
         f.close()
-
-        return X, y
+        return X, [intermediate_y,y]

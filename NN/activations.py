@@ -1,4 +1,4 @@
+import numpy as np
 
 def complex_relu(x):
-    print(x)
-    return x
+    return 
