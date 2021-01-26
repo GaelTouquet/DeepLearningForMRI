@@ -104,7 +104,7 @@ myagent.train(epochs=epochs, verbose=1)
 print('saving agent')
 myagent.save(os.path.join(workdir,'agent{}'.format(timestamp)))
 print('making plots')
-data_file_path = os.path.join(workdir,'val_{}'.format(timestamp+agenttag))
+data_file_path = os.path.join(workdir,'val_{}'.format(agenttag))#timestamp+
 data_files = [os.path.join(data_file_path, f) for f in os.listdir(data_file_path) if (
             os.path.isfile(os.path.join(data_file_path, f)) and ('.h5' in f))]
 plotting(data_files,show_abs_and_phase=True,show_kspaces=False,model=myagent.network,model_path=os.path.join(workdir,'trainingsaves_{}'.format(timestamp)),plot=False)
