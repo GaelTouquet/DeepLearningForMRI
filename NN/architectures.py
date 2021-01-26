@@ -3,6 +3,12 @@ from tensorflow.keras.models import Model
 from tensorflow.keras.layers import Activation, Conv2DTranspose, Dropout, Input, Conv2D, Lambda,MaxPooling2D, concatenate, UpSampling2D,Add, BatchNormalization
 from tensorflow.keras.optimizers import Adam
 
+def nrmse_2D(y_true, y_pred):
+    denom1 = tf.sqrt(tf.keras.backend.mean(tf.square(y_true[:,:,:,0]), axis=(1,2)))
+    num1 = tf.sqrt(tf.keras.backend.mean(tf.square(y_pred[:,:,:,0] - y_true[:,:,:,0]), axis=(1,2)))
+    denom2 = tf.sqrt(tf.keras.backend.mean(tf.square(y_true[:,:,:,1]), axis=(1,2)))
+    num2 = tf.sqrt(tf.keras.backend.mean(tf.square(y_pred[:,:,:,1] - y_true[:,:,:,1]), axis=(1,2)))
+    return (num1/denom1) + (num2/denom2)
 
 def nrmse(y_true, y_pred):
     denom = tf.sqrt(tf.keras.backend.mean(tf.square(y_true), axis=(1,2,3)))
@@ -70,14 +76,17 @@ def test_model(input_shape=(200,200,2,1)):
     model = Model(inputs=inputs,outputs=ifft)
     return model
 
-def get_unet(input_shape=(200,200,2,1), n_filters=16, dropout=0.5, batchnorm=True, kernel_initializer="he_normal"):
+def get_unet(input_shape=(200,200,2,1), n_filters=16, dropout=0.5, batchnorm=True, kernel_initializer="he_normal", normfactor=1e6):
     
 #    print(input_img)
     # contracting path
 #    input_img=(input_img-1000)/1000
     inputs = Input(shape=input_shape)
 
-    c1 = conv2d_block_3(inputs, n_filters=n_filters*1, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)
+    #normfactor test
+    normed_inputs = Lambda(lambda x: x*normfactor)(inputs)
+
+    c1 = conv2d_block_3(normed_inputs, n_filters=n_filters*1, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)
     p1 = MaxPooling2D((2, 2)) (c1)
     p1 = Dropout(dropout*0.5)(p1)
 
@@ -117,13 +126,18 @@ def get_unet(input_shape=(200,200,2,1), n_filters=16, dropout=0.5, batchnorm=Tru
     c9 = conv2d_block_3(u9, n_filters=n_filters*1, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)
    
     outkspace = Conv2D(2, (1, 1), activation='linear') (c9)
-    
-    outkspace_comb = Add()([outkspace,inputs])
 
-    
+    outkspace_comb = Add()([outkspace,normed_inputs])
+
+    #normfactor test
+    outkspace_comb = Lambda(lambda x: x/normfactor)(outkspace_comb)
+
     img_rec = Lambda(ifft_layer)(outkspace_comb)
+
+    #normfactor test
+    img_rec_norm = Lambda(lambda x: x*normfactor)(img_rec)
     
-    d1 = conv2d_block_2(img_rec, n_filters=n_filters*1, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)#conv2d_block_2(img_rec, n_filters=n_filters*1, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)
+    d1 = conv2d_block_2(img_rec_norm, n_filters=n_filters*1, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)#conv2d_block_2(img_rec, n_filters=n_filters*1, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)
     k1 = MaxPooling2D((2, 2)) (d1)
     k1 = Dropout(dropout*0.5)(k1)
 
@@ -164,9 +178,12 @@ def get_unet(input_shape=(200,200,2,1), n_filters=16, dropout=0.5, batchnorm=Tru
    
     outimg = Conv2D(2, (1, 1), activation='linear') (d9)
 
-    outimg_comb = Add()([img_rec,outimg])
+    outimg_comb = Add()([img_rec_norm,outimg])
+    
+    #normfactor test
+    outimg_comb = Lambda(lambda x: x/normfactor)(outimg_comb)
 
-    model = Model(inputs=[inputs], outputs=[outkspace_comb,outimg_comb])#
+    model = Model(inputs=[inputs], outputs=[img_rec,outimg_comb])#
     return model
 
 # from tensorflow.keras import backend as keras

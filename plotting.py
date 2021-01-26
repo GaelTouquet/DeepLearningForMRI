@@ -63,22 +63,20 @@ def plotting(data_files,show_abs_and_phase,show_kspaces,model=None,model_path=No
                 else:
                     y_ks_r = output_model[0][0,:,:,0]
                     y_ks_i = output_model[0][0,:,:,1]
-                if not show_kspaces:
-                    y_ks_r, y_ks_i = form(ifft2(y_ks_r,y_ks_i))
+
 
                 #intermediate ground truth
                 Y_ks_r = h5f['intermediate_outputs'][i,:,:,0]
                 Y_ks_i = h5f['intermediate_outputs'][i,:,:,1]
-                if not show_kspaces:
+                if show_kspaces:
                     Y_ks_r, Y_ks_i = form(ifft2(Y_ks_r,Y_ks_i))
-
 
                 #output
                 if model is None:
                     if h5f['tests'].shape[-1]==2:
                         y_img_r = h5f['tests'][1,i,:,:,0]
                         y_img_i = h5f['tests'][1,i,:,:,1]
-                        if show_abs_and_phase:
+                        if not show_abs_and_phase:
                             y_img_r, y_img_i = form(y_img_r,y_img_i)
                     else:
                         y_img_r = h5f['tests'][1,i,:,:,0]
@@ -87,8 +85,8 @@ def plotting(data_files,show_abs_and_phase,show_kspaces,model=None,model_path=No
                     if output_model[1].shape[-1]==2:
                         y_img_r = output_model[1][0,:,:,0]
                         y_img_i = output_model[1][0,:,:,1]
-                        # if show_abs_and_phase:
-                        #     y_img_r, y_img_i = form(y_img_r,y_img_i)    
+                        if not show_abs_and_phase:
+                            y_img_r, y_img_i = form(y_img_r,y_img_i)    
                     else:
                         y_img_r = output_model[1][0,:,:,0]
                         y_img_i = np.zeros(np.shape(y_img_r))
@@ -100,7 +98,7 @@ def plotting(data_files,show_abs_and_phase,show_kspaces,model=None,model_path=No
                 else:
                     Y_r = h5f['outputs'][i,:,:,0]
                     Y_i = np.zeros(np.shape(Y_r))
-                if show_abs_and_phase:
+                if not show_abs_and_phase:
                     Y_r, Y_i = form(Y_r,Y_i)
 
                 fig, axs = plt.subplots(2,5, figsize=(20, 20))
@@ -142,11 +140,11 @@ def plotting(data_files,show_abs_and_phase,show_kspaces,model=None,model_path=No
 
 if __name__ == '__main__':
     tf.config.set_visible_devices([],'GPU')
-    model_path = r'D:\NN_DATA\singlecoil_acc30_onlygoodslices_1e6norm\agentJan_21_10_12_trainingsaves'
+    model_path = r'D:\NN_DATA\singlecoil_acc30_nonorm_abs&phase_end&interm_onlymiddleslices_test5\trainingsaves_Jan_26_10_15'
 
     model = get_unet((256,256,2))
 
-    data_file_path = r'D:\NN_DATA\singlecoil_acc30_onlygoodslices_1e6norm\train\file1000001.h5'
+    data_file_path = r'D:\NN_DATA\singlecoil_acc30_nonorm_abs&phase_end&interm_onlymiddleslices_test5\train\file1000002.h5'
 
     show_abs_and_phase = True
     show_kspaces = False

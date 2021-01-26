@@ -104,8 +104,8 @@ def prepare_datasets(datapath, workdirpath, dataset_type,
             inputs[k,:,:,0] = np.real(kdata)
             inputs[k,:,:,1] = np.imag(kdata)
 
-            intermediate_outputs[k,:,:,0] = np.real(kdata_clean)
-            intermediate_outputs[k,:,:,1] = np.imag(kdata_clean)
+            intermediate_outputs[k,:,:,0] = np.abs(image)
+            intermediate_outputs[k,:,:,1] = np.angle(image)
             # outputs[k,:,:,0] = np.abs(image)
             if n_channels_out ==1:
                 outputs[k,:,:,0] = np.abs(image)
@@ -120,8 +120,9 @@ def prepare_datasets(datapath, workdirpath, dataset_type,
         outfile.create_dataset('outputs', data=outputs)
         outfile.close()
     indexfile_path = os.path.join(output_dir,'index.json')
-    with open(indexfile_path, 'w') as fp:
-        json.dump(index_dict, fp)
+    if index_dict!={}:
+        with open(indexfile_path, 'w') as fp:
+            json.dump(index_dict, fp)
     return indexfile_path
 
 def test_data(path,agent,batch_size=5):
