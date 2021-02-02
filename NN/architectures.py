@@ -36,7 +36,7 @@ def conv2d_block(input_tensor, n_filters, kernel_size=3, n_layer=1, batchnorm=Tr
     x = input_tensor
     for i in range(n_layer):
         x = Conv2D(filters=n_filters, kernel_size=(kernel_size, kernel_size), kernel_initializer=kernel_initializer,
-            padding="same")(input_tensor)
+            padding="same")(x)
         if batchnorm:
             x = BatchNormalization()(x)
         x = Activation("relu")(x)
