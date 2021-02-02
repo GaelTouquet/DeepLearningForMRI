@@ -35,14 +35,15 @@ def plotting(data_files,show_abs_and_phase,show_kspaces,model=None,model_path=No
     else:
         model_files = ['bla'] #to loop only once TODO find a better workaround
 
-    for model_file in model_files:
-        if model_path is not None:
-            model.load_weights(model_file)
+    for f in data_files:
+        h5f = h5py.File(f, 'r')
 
-        form = abs_and_phase if show_abs_and_phase else real_and_imag
+        for model_file in model_files:
+            if model_path is not None:
+                model.load_weights(model_file)
 
-        for f in data_files:
-            h5f = h5py.File(f, 'r')
+            form = abs_and_phase if show_abs_and_phase else real_and_imag
+
 
             for i in [4]:#range(h5f['tests'].shape[1]):
 
@@ -136,15 +137,16 @@ def plotting(data_files,show_abs_and_phase,show_kspaces,model=None,model_path=No
                 else:
                     plt.savefig(model_file[:-2]+'png')
                 plt.close()
+        h5f.close()
 
 
 if __name__ == '__main__':
     tf.config.set_visible_devices([],'GPU')
-    model_path = r'D:\NN_DATA\singlecoil_acc30_nonorm_abs&phase_end&interm_onlymiddleslices_test5\trainingsaves_Jan_26_10_15'
+    model_path = r'D:\NN_DATA\singlecoil_acc30_abs&phase_midslices\trainingsaves_Feb_01_14_41'
 
     model = get_unet((256,256,2))
 
-    data_file_path = r'D:\NN_DATA\singlecoil_acc30_nonorm_abs&phase_end&interm_onlymiddleslices_test5\train\file1000002.h5'
+    data_file_path = r'D:\NN_DATA\singlecoil_acc30_abs&phase_midslices\train\file1000002.h5'
 
     show_abs_and_phase = True
     show_kspaces = False
