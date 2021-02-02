@@ -32,6 +32,16 @@ def ifft_layer(kspace):
     return tf.stack(rec1,axis=-1)# rec1 = tf.expand_dims(rec1, -1)
     # return tf.expand_dims(tf.abs(rec1),3)
 
+def conv2d_block(input_tensor, n_filters, kernel_size=3, n_layer=1, batchnorm=True,kernel_initializer="he_normal"):
+    x = input_tensor
+    for i in range(n_layer):
+        x = Conv2D(filters=n_filters, kernel_size=(kernel_size, kernel_size), kernel_initializer=kernel_initializer,
+            padding="same")(input_tensor)
+        if batchnorm:
+            x = BatchNormalization()(x)
+        x = Activation("relu")(x)
+    return x
+
 def conv2d_block_3(input_tensor, n_filters, kernel_size=3, batchnorm=True,kernel_initializer="he_normal"):
     # first layer
     x = Conv2D(filters=n_filters, kernel_size=(kernel_size, kernel_size), kernel_initializer=kernel_initializer,
@@ -76,7 +86,7 @@ def test_model(input_shape=(200,200,2,1)):
     model = Model(inputs=inputs,outputs=ifft)
     return model
 
-def get_unet(input_shape=(200,200,2,1), n_filters=16, dropout=0.5, batchnorm=True, kernel_initializer="he_normal", normfactor=1e6):
+def get_unet(input_shape=(200,200,2,1), n_layer_kspace=3, n_layer_img=3, n_filters=16, dropout=0.5, batchnorm=True, kernel_initializer="he_normal", normfactor=1):
     
 #    print(input_img)
     # contracting path
@@ -86,44 +96,44 @@ def get_unet(input_shape=(200,200,2,1), n_filters=16, dropout=0.5, batchnorm=Tru
     #normfactor test
     normed_inputs = Lambda(lambda x: x*normfactor)(inputs)
 
-    c1 = conv2d_block_3(normed_inputs, n_filters=n_filters*1, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)
+    c1 = conv2d_block(normed_inputs, n_layer=n_layer_kspace,n_filters=n_filters*1, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)
     p1 = MaxPooling2D((2, 2)) (c1)
     p1 = Dropout(dropout*0.5)(p1)
 
-    c2 = conv2d_block_3(p1, n_filters=n_filters*2, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)
+    c2 = conv2d_block(p1, n_layer=n_layer_kspace, n_filters=n_filters*2, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)
     p2 = MaxPooling2D((2, 2)) (c2)
     p2 = Dropout(dropout)(p2)
 
-    c3 = conv2d_block_3(p2, n_filters=n_filters*4, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)
+    c3 = conv2d_block(p2, n_layer=n_layer_kspace, n_filters=n_filters*4, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)
     p3 = MaxPooling2D((2, 2)) (c3)
     p3 = Dropout(dropout)(p3)
 
-    c4 = conv2d_block_3(p3, n_filters=n_filters*8, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)
+    c4 = conv2d_block(p3, n_layer=n_layer_kspace, n_filters=n_filters*8, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)
     p4 = MaxPooling2D(pool_size=(2, 2)) (c4)
     p4 = Dropout(dropout)(p4)
     
-    c5 = conv2d_block_3(p4, n_filters=n_filters*16, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)
+    c5 = conv2d_block(p4, n_layer=n_layer_kspace, n_filters=n_filters*16, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)
     
     # expansive path
     u6 = Conv2DTranspose(n_filters*8, (3, 3), strides=(2, 2), padding='same') (c5)
     u6 = concatenate([u6, c4])
     u6 = Dropout(dropout)(u6)
-    c6 = conv2d_block_3(u6, n_filters=n_filters*8, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)
+    c6 = conv2d_block(u6, n_layer=n_layer_kspace, n_filters=n_filters*8, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)
 
     u7 = Conv2DTranspose(n_filters*4, (3, 3), strides=(2, 2), padding='same') (c6)
     u7 = concatenate([u7, c3])
     u7 = Dropout(dropout)(u7)
-    c7 = conv2d_block_3(u7, n_filters=n_filters*4, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)
+    c7 = conv2d_block(u7, n_layer=n_layer_kspace, n_filters=n_filters*4, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)
 
     u8 = Conv2DTranspose(n_filters*2, (3, 3), strides=(2, 2), padding='same') (c7)
     u8 = concatenate([u8, c2])
     u8 = Dropout(dropout)(u8)
-    c8 = conv2d_block_3(u8, n_filters=n_filters*2, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)
+    c8 = conv2d_block(u8, n_layer=n_layer_kspace, n_filters=n_filters*2, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)
 
     u9 = Conv2DTranspose(n_filters*1, (3, 3), strides=(2, 2), padding='same') (c8)
     u9 = concatenate([u9, c1], axis=3)
     u9 = Dropout(dropout)(u9)
-    c9 = conv2d_block_3(u9, n_filters=n_filters*1, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)
+    c9 = conv2d_block(u9, n_layer=n_layer_kspace, n_filters=n_filters*1, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)
    
     outkspace = Conv2D(2, (1, 1), activation='linear') (c9)
 
@@ -137,44 +147,44 @@ def get_unet(input_shape=(200,200,2,1), n_filters=16, dropout=0.5, batchnorm=Tru
     #normfactor test
     img_rec_norm = Lambda(lambda x: x*normfactor)(img_rec)
     
-    d1 = conv2d_block_2(img_rec_norm, n_filters=n_filters*1, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)#conv2d_block_2(img_rec, n_filters=n_filters*1, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)
+    d1 = conv2d_block(img_rec_norm, n_layer=n_layer_img, n_filters=n_filters*1, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)#conv2d_block(img_rec, n_filters=n_filters*1, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)
     k1 = MaxPooling2D((2, 2)) (d1)
     k1 = Dropout(dropout*0.5)(k1)
 
-    d2 = conv2d_block_2(k1, n_filters=n_filters*2, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)#conv2d_block_2(k1, n_filters=n_filters*2, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)
+    d2 = conv2d_block(k1, n_layer=n_layer_img, n_filters=n_filters*2, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)#conv2d_block(k1, n_filters=n_filters*2, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)
     k2 = MaxPooling2D((2, 2)) (d2)
     k2 = Dropout(dropout)(k2)
 
-    d3 = conv2d_block_2(k2, n_filters=n_filters*4, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)#conv2d_block_2(k2, n_filters=n_filters*4, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)
+    d3 = conv2d_block(k2, n_layer=n_layer_img, n_filters=n_filters*4, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)#conv2d_block(k2, n_filters=n_filters*4, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)
     k3 = MaxPooling2D((2, 2)) (d3)
     k3 = Dropout(dropout)(k3)
 
-    d4 = conv2d_block_2(k3, n_filters=n_filters*8, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)#conv2d_block_2(k3, n_filters=n_filters*8, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)
+    d4 = conv2d_block(k3, n_layer=n_layer_img, n_filters=n_filters*8, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)#conv2d_block(k3, n_filters=n_filters*8, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)
     k4 = MaxPooling2D(pool_size=(2, 2)) (d4)
     k4 = Dropout(dropout)(k4)
     
-    d5 = conv2d_block_2(k4, n_filters=n_filters*16, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)#conv2d_block_2(k4, n_filters=n_filters*16, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)
+    d5 = conv2d_block(k4, n_layer=n_layer_img, n_filters=n_filters*16, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)#conv2d_block(k4, n_filters=n_filters*16, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)
     
     # expansive path
     v6 = Conv2DTranspose(n_filters*8, (3, 3), strides=(2, 2), padding='same') (d5)
     v6 = concatenate([v6, d4])
     v6 = Dropout(dropout)(v6)
-    d6 = conv2d_block_3(v6, n_filters=n_filters*8, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)#conv2d_block_2(v6, n_filters=n_filters*8, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)
+    d6 = conv2d_block(v6, n_layer=n_layer_img, n_filters=n_filters*8, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)#conv2d_block_2(v6, n_filters=n_filters*8, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)
 
     v7 = Conv2DTranspose(n_filters*4, (3, 3), strides=(2, 2), padding='same') (d6)
     v7 = concatenate([v7, d3])
     v7 = Dropout(dropout)(v7)
-    d7 = conv2d_block_3(v7, n_filters=n_filters*4, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)#conv2d_block_2(v7, n_filters=n_filters*4, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)
+    d7 = conv2d_block(v7, n_layer=n_layer_img, n_filters=n_filters*4, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)#conv2d_block_2(v7, n_filters=n_filters*4, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)
 
     v8 = Conv2DTranspose(n_filters*2, (3, 3), strides=(2, 2), padding='same') (d7)
     v8 = concatenate([v8, d2])
     v8 = Dropout(dropout)(v8)
-    d8 = conv2d_block_3(v8, n_filters=n_filters*2, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)#conv2d_block_2(v8, n_filters=n_filters*2, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)
+    d8 = conv2d_block(v8, n_layer=n_layer_img, n_filters=n_filters*2, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)#conv2d_block_2(v8, n_filters=n_filters*2, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)
 
     v9 = Conv2DTranspose(n_filters*1, (3, 3), strides=(2, 2), padding='same') (d8)
     v9 = concatenate([v9, d1], axis=3)
     v9 = Dropout(dropout)(v9)
-    d9 = conv2d_block_3(v9, n_filters=n_filters*1, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)#conv2d_block_2(v9, n_filters=n_filters*1, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)
+    d9 = conv2d_block(v9, n_filters=n_filters*1, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)#conv2d_block_2(v9, n_filters=n_filters*1, kernel_size=3, batchnorm=batchnorm, kernel_initializer=kernel_initializer)
    
     outimg = Conv2D(2, (1, 1), activation='linear') (d9)
 

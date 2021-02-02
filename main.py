@@ -35,12 +35,12 @@ input_mask = PolynomialMaskGenerator(image_shape,sampling_factor=sampling_factor
 
 # network
 batch_size = 8
-epochs = 200
-model = get_unet(input_shape=(*indim,n_channels_in),kernel_initializer=RandomNormal())#not_complex#complex_but_not
+epochs = 50
+model = get_unet(input_shape=(*indim,n_channels_in),kernel_initializer=RandomNormal(),normfactor=1e6)#not_complex#complex_but_not
 
 # tags for the run
-datatag = 'nonorm_abs&phase_end&interm_onlymiddleslices_test5' # if already run with this tag, same data is used (=data will not be re-generated)
-agenttag = 'abs&phase_Wnet_randnorminitstd1e-6_baselearningrate'
+datatag = 'abs&phase_midslices' # if already run with this tag, same data is used (=data will not be re-generated)
+agenttag = 'Wnet_norm1e6_3layerk&img'
 
 
 
@@ -57,7 +57,7 @@ if not os.path.isdir(workdir):
 print("compiling model")
 model.compile(loss = [nrmse_2D,nrmse_2D],optimizer=Adam())#,tf.keras.losses.MeanAbsoluteError() 
 
-model.load_weights(r'D:\NN_DATA\singlecoil_acc30_nonorm_abs&phase_end&interm_onlymiddleslices_test5\trainingsaves_Jan_25_17_12\epoch200.h5')
+# model.load_weights(r'D:\NN_DATA\singlecoil_acc30_nonorm_abs&phase_end&interm_onlymiddleslices_test5\trainingsaves_Jan_25_17_12\epoch200.h5')
 # model = tf.keras.models.load_model(r'D:\NN_DATA\singlecoil_acc30_onlygoodslices_nonorm\agentJan_19_15_40')
 
 
