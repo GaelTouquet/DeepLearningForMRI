@@ -3,7 +3,7 @@ import h5py
 import matplotlib.pyplot as plt
 import numpy as np
 import tensorflow as tf
-from NN.architectures import get_unet, get_unet_old
+from NN.architectures import get_wnet, nrmse_2D_L2, get_unet, get_unet_fft, norm_abs, unnorm_abs
 
 def abs_and_phase(x, y=None):
     if y is not None:
@@ -25,7 +25,7 @@ def simple_plot(cplximag):
     axs[1].imshow(np.angle(cplximag), cmap='gray')
     plt.show()
 
-def plotting(data_files,show_abs_and_phase,show_kspaces,model=None,model_path=None,plot=True, rewrite=False):
+def plotting(data_files,show_abs_and_phase,show_kspaces,model=None,model_path=None,intermediate_output=False,plot=True, rewrite=False):
 
     if model_path is not None:
         model_files = [os.path.join(model_path, f) for f in os.listdir(model_path) if (
@@ -42,95 +42,56 @@ def plotting(data_files,show_abs_and_phase,show_kspaces,model=None,model_path=No
             if model_path is not None:
                 model.load_weights(model_file)
 
-            form = abs_and_phase if show_abs_and_phase else real_and_imag
-
 
             for i in [4]:#range(h5f['tests'].shape[1]):
 
                 #input
-                x_r = h5f['inputs'][i,:,:,0]
-                x_i = h5f['inputs'][i,:,:,1]
-                if not show_kspaces:
-                    x_r, x_i = form(ifft2(x_r,x_i))
+                x_r = h5f['image_masked'][i,:,:,0]
+                x_i = h5f['image_masked'][i,:,:,1]
 
                 #evaluation of model if given one
-                if model is not None:
-                    output_model = model.predict(np.expand_dims(h5f['inputs'][i],axis=0))
+                output_model = model.predict(np.expand_dims(h5f['kspace_masked'][i],axis=0))
 
                 #intermediate output
-                if model is None:
-                    y_ks_r = h5f['tests'][0,i,:,:,0]
-                    y_ks_i = h5f['tests'][0,i,:,:,1]
-                else:
+                if intermediate_output:
                     y_ks_r = output_model[0][0,:,:,0]
                     y_ks_i = output_model[0][0,:,:,1]
-
-
-                #intermediate ground truth
-                Y_ks_r = h5f['intermediate_outputs'][i,:,:,0]
-                Y_ks_i = h5f['intermediate_outputs'][i,:,:,1]
-                if show_kspaces:
-                    Y_ks_r, Y_ks_i = form(ifft2(Y_ks_r,Y_ks_i))
+                else:
+                    y_ks_r = np.zeros(np.shape(x_r))
+                    y_ks_i = np.zeros(np.shape(x_i))
 
                 #output
-                if model is None:
-                    if h5f['tests'].shape[-1]==2:
-                        y_img_r = h5f['tests'][1,i,:,:,0]
-                        y_img_i = h5f['tests'][1,i,:,:,1]
-                        if not show_abs_and_phase:
-                            y_img_r, y_img_i = form(y_img_r,y_img_i)
-                    else:
-                        y_img_r = h5f['tests'][1,i,:,:,0]
-                        y_img_i = np.zeros(np.shape(y_img_r))
+                if intermediate_output:
+                    y_img_r = output_model[1][0,:,:,0]
+                    y_img_i = output_model[1][0,:,:,1]
                 else:
-                    if output_model[1].shape[-1]==2:
-                        y_img_r = output_model[1][0,:,:,0]
-                        y_img_i = output_model[1][0,:,:,1]
-                        if not show_abs_and_phase:
-                            y_img_r, y_img_i = form(y_img_r,y_img_i)    
-                    else:
-                        y_img_r = output_model[1][0,:,:,0]
-                        y_img_i = np.zeros(np.shape(y_img_r))
+                    y_img_r = output_model[0,:,:,0]
+                    y_img_i = output_model[0,:,:,1]
+
 
                 #ground truth
-                if h5f['outputs'].shape[-1]==2:
-                    Y_r = h5f['outputs'][i,:,:,0]
-                    Y_i = h5f['outputs'][i,:,:,1]
-                else:
-                    Y_r = h5f['outputs'][i,:,:,0]
-                    Y_i = np.zeros(np.shape(Y_r))
-                if not show_abs_and_phase:
-                    Y_r, Y_i = form(Y_r,Y_i)
+                Y_r = h5f['image_ground_truth'][i,:,:,0]
+                Y_i = h5f['image_ground_truth'][i,:,:,1]
 
-                fig, axs = plt.subplots(2,5, figsize=(20, 20))
+                fig, axs = plt.subplots(2,4, figsize=(20, 20))
                 fig.subplots_adjust(hspace=0.1, wspace=0.1)
                 axs = axs.ravel()
-                if show_abs_and_phase:
-                    real = 'abs'
-                    imag = 'phase'
-                else:
-                    real = 'real'
-                    imag = 'imag'
                 axs[0].imshow(x_r,cmap='gray')
-                axs[0].title.set_text('KS Input {}'.format(real))
-                axs[5].imshow(x_i,cmap='gray')
-                axs[5].title.set_text('KS Input {}'.format(imag))
+                axs[0].title.set_text('KS Input abs')
+                axs[4].imshow(x_i,cmap='gray')
+                axs[4].title.set_text('KS Input phase')
                 axs[1].imshow(y_ks_r,cmap='gray')
-                axs[1].title.set_text('Intermediate kspace output {}'.format(real))
-                axs[6].imshow(y_ks_i,cmap='gray')
-                axs[6].title.set_text('Intermediate kspace output {}'.format(imag))
-                axs[2].imshow(Y_ks_r,cmap='gray')
-                axs[2].title.set_text('Intermediate ground truth {}'.format(real))
-                axs[7].imshow(Y_ks_i,cmap='gray')
-                axs[7].title.set_text('Intermediate ground truth {}'.format(imag))
-                axs[3].imshow(y_img_r,cmap='gray')
-                axs[3].title.set_text('output {}'.format(real))
-                axs[8].imshow(y_img_i,cmap='gray')
-                axs[8].title.set_text('output {}'.format(imag))
-                axs[4].imshow(Y_r,cmap='gray')
-                axs[4].title.set_text('Ground truth {}'.format(real))
-                axs[9].imshow(Y_i,cmap='gray')
-                axs[9].title.set_text('Ground truth {}'.format(imag))
+                axs[1].title.set_text('Intermediate output abs')
+                axs[5].imshow(y_ks_i,cmap='gray')
+                axs[5].title.set_text('Intermediate output phase')
+                axs[2].imshow(y_img_r,cmap='gray')
+                axs[2].title.set_text('output abs')
+                axs[6].imshow(y_img_i,cmap='gray')
+                axs[6].title.set_text('output phase')
+                axs[3].imshow(Y_r,cmap='gray')
+                axs[3].title.set_text('Ground truth abs')
+                axs[7].imshow(Y_i,cmap='gray')
+                axs[7].title.set_text('Ground truth phase')
 
                 if plot:
                     plt.show()
@@ -142,11 +103,11 @@ def plotting(data_files,show_abs_and_phase,show_kspaces,model=None,model_path=No
 
 if __name__ == '__main__':
     tf.config.set_visible_devices([],'GPU')
-    model_path = r'D:\NN_DATA\singlecoil_acc30_abs&phase_midslices\trainingsaves_Feb_01_14_41'
+    model_path = r'D:\NN_DATA\singlecoil_acc15_absphasekspaceimg_midslices_kabsmaxnorm\trainingsaves_Unet_kspacetoimg_absnormunnorm_depth8_nobatchnorm_Feb_05_18_10'
 
-    model = get_unet((256,256,2))
+    model = get_unet_fft(input_shape=(256,256,2),fullskip=True,normfunction=norm_abs, unormfunc=unnorm_abs,depth=8,n_filters=2,batchnorm=False)
 
-    data_file_path = r'D:\NN_DATA\singlecoil_acc30_abs&phase_midslices\train\file1000002.h5'
+    data_file_path = r'D:\NN_DATA\singlecoil_acc15_absphasekspaceimg_midslices_kabsmaxnorm\val\file1000026.h5'
 
     show_abs_and_phase = True
     show_kspaces = False
@@ -158,6 +119,6 @@ if __name__ == '__main__':
         data_files = [data_file_path]
     else:
         data_files = [os.path.join(data_file_path, f) for f in os.listdir(data_file_path) if (
-                os.path.isfile(os.path.join(data_file_path, f)) and ('.h5' in f))]
+                os.path.isfile(os.path.join(data_file_path, f)) and ('epoch' in f))]
 
-    plotting(data_files,show_abs_and_phase,show_kspaces,model,model_path,plot=plot,rewrite=rewrite)
+    plotting(data_files,show_abs_and_phase,show_kspaces,model,model_path,plot=plot,rewrite=rewrite,intermediate_output=False)
