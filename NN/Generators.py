@@ -96,6 +96,86 @@ class DataGenerator_kspace_img(BaseDataGenerator):
 
         return X, y
 
+class DataGenerator_kspace_img_interm_kspace(BaseDataGenerator):
+    """
+    Generates data for a Wnet_like architecture.
+    """
+    def __data_generation(self, list_IDs_temp):
+        """
+        Generates data containing batch_size samples.
+        """
+        X = np.empty((self.batch_size, *self.data_shape))
+        intermediate_y = np.empty((self.batch_size, *self.data_shape))
+        y = np.empty((self.batch_size, *self.data_shape))
+
+        # Generate data
+        f = h5py.File(list_IDs_temp[0][0], 'r')
+        for i, ID in enumerate(list_IDs_temp):
+            # open right file if needed
+            if f.filename != ID[0]:
+                f.close()
+                f = h5py.File(ID[0], 'r')
+            X[i] = f['kspace_masked'][ID[1]]
+            intermediate_y[i] = f['kspace_ground_truth'][ID[1]]
+            y[i] = f['image_ground_truth'][ID[1]]
+        f.close()
+        return X, [intermediate_y,y]
+
+    def __getitem__(self, index):
+        """
+        Generate one batch of data.
+        """
+        # Generate indexes of the batch
+        indexes = self.indexes[index*self.batch_size:(index+1)*self.batch_size]
+
+        # Find list of IDs
+        list_IDs_temp = [self.list_IDs[k] for k in indexes]
+
+        # Generate data
+        X, y = self.__data_generation(list_IDs_temp)
+
+        return X, y
+
+class DataGenerator_kspace_img_interm_kspace_onlyabsimg(BaseDataGenerator):
+    """
+    Generates data for a Wnet_like architecture.
+    """
+    def __data_generation(self, list_IDs_temp):
+        """
+        Generates data containing batch_size samples.
+        """
+        X = np.empty((self.batch_size, *self.data_shape))
+        intermediate_y = np.empty((self.batch_size, *self.data_shape))
+        y = np.empty((self.batch_size, *self.data_shape[:2],1))
+
+        # Generate data
+        f = h5py.File(list_IDs_temp[0][0], 'r')
+        for i, ID in enumerate(list_IDs_temp):
+            # open right file if needed
+            if f.filename != ID[0]:
+                f.close()
+                f = h5py.File(ID[0], 'r')
+            X[i] = f['kspace_masked'][ID[1]]
+            intermediate_y[i] = f['kspace_ground_truth'][ID[1]]
+            y[i] = np.expand_dims(np.abs(f['image_ground_truth'][ID[1]][:,:,0]+1j*f['image_ground_truth'][ID[1]][:,:,1]),axis=-1)
+        f.close()
+        return X, [intermediate_y,y]
+
+    def __getitem__(self, index):
+        """
+        Generate one batch of data.
+        """
+        # Generate indexes of the batch
+        indexes = self.indexes[index*self.batch_size:(index+1)*self.batch_size]
+
+        # Find list of IDs
+        list_IDs_temp = [self.list_IDs[k] for k in indexes]
+
+        # Generate data
+        X, y = self.__data_generation(list_IDs_temp)
+
+        return X, y
+
 class DataGenerator_kspace_to_img(BaseDataGenerator):
     """
     Generates data for a Wnet_like architecture.
@@ -142,8 +222,8 @@ class DataGenerator_img(BaseDataGenerator):
         """
         Generates data containing batch_size samples.
         """
-        X = np.empty((self.batch_size, *self.data_shape))
-        y = np.empty((self.batch_size, *self.data_shape))
+        X = np.empty((self.batch_size, *self.data_shape),dtype=np.float32)
+        y = np.empty((self.batch_size, *self.data_shape),dtype=np.float32)
 
         # Generate data
         f = h5py.File(list_IDs_temp[0][0], 'r')
@@ -171,6 +251,88 @@ class DataGenerator_img(BaseDataGenerator):
         X, y = self.__data_generation(list_IDs_temp)
 
         return X, y
+
+class DataGenerator_img_abs(BaseDataGenerator):
+    """
+    Generates data for a Wnet_like architecture.
+    """
+    def __data_generation(self, list_IDs_temp):
+        """
+        Generates data containing batch_size samples.
+        """
+        X = np.empty((self.batch_size, 256,256,1),dtype=np.float32)
+        y = np.empty((self.batch_size, 256,256,1),dtype=np.float32)
+
+        # Generate data
+        f = h5py.File(list_IDs_temp[0][0], 'r')
+        for i, ID in enumerate(list_IDs_temp):
+            # open right file if needed
+            if f.filename != ID[0]:
+                f.close()
+                f = h5py.File(ID[0], 'r')
+            X[i] = np.reshape(f['image_masked'][ID[1],:,:,0],(256,256,1))
+            y[i] = np.reshape(f['image_ground_truth'][ID[1],:,:,0],(256,256,1))
+        f.close()
+        return X,y
+
+    def __getitem__(self, index):
+        """
+        Generate one batch of data.
+        """
+        # Generate indexes of the batch
+        indexes = self.indexes[index*self.batch_size:(index+1)*self.batch_size]
+
+        # Find list of IDs
+        list_IDs_temp = [self.list_IDs[k] for k in indexes]
+
+        # Generate data
+        X, y = self.__data_generation(list_IDs_temp)
+
+        return X, y
+
+
+class DataGenerator_fullimg_abs_interm(BaseDataGenerator):
+    """
+    Generates data for a Wnet_like architecture.
+    """
+    def __data_generation(self, list_IDs_temp):
+        """
+        Generates data containing batch_size samples.
+        """
+        X = np.empty((self.batch_size, 256,256,2),dtype=np.float32)
+        y_interm = np.empty((self.batch_size, 256,256,2),dtype=np.float32)
+        y = np.empty((self.batch_size, 256,256,1),dtype=np.float32)
+
+
+        # Generate data
+        f = h5py.File(list_IDs_temp[0][0], 'r')
+        for i, ID in enumerate(list_IDs_temp):
+            # open right file if needed
+            if f.filename != ID[0]:
+                f.close()
+                f = h5py.File(ID[0], 'r')
+            X[i] = np.reshape(f['kspace_masked'][ID[1],:,:,:],(256,256,2))
+            y_interm[i] = np.reshape(f['kspace_ground_truth'][ID[1],:,:,:],(256,256,2))
+            img = f['image_ground_truth'][ID[1],:,:,0] + 1j*f['image_ground_truth'][ID[1],:,:,1]
+            y[i] = np.reshape(np.abs(img),(256,256,1))
+        f.close()
+        return X,[y_interm,y]
+
+    def __getitem__(self, index):
+        """
+        Generate one batch of data.
+        """
+        # Generate indexes of the batch
+        indexes = self.indexes[index*self.batch_size:(index+1)*self.batch_size]
+
+        # Find list of IDs
+        list_IDs_temp = [self.list_IDs[k] for k in indexes]
+
+        # Generate data
+        X, y = self.__data_generation(list_IDs_temp)
+
+        return X, y
+
 
 class DataGenerator_kspace(BaseDataGenerator):
     """
@@ -218,15 +380,16 @@ generator_dict = {
     'kspacetokspace&img':DataGenerator_kspace_img
 }
 
-def find_generator(path):
-    if 'Wnet' in path:
-        return generator_dict['kspacetokspace&img']
-    elif 'kspacetoimg' in path:
-        return generator_dict['kspacetoimg']
-    elif 'img' in path:
-        return generator_dict['imgtoimg']
-    elif 'kspace' in path:
-        return generator_dict['kspacetokspace']
+def find_generator(input_kspace, output_image, intermediate_output=False):
+    if input_kspace:
+        if output_image:
+            if intermediate_output=='image':
+                return DataGenerator_kspace_img
+            elif intermediate_output=='kspace':
+                return DataGenerator_kspace_img_interm_kspace
+            else:
+                return DataGenerator_kspace_to_img
+        else:
+            return DataGenerator_kspace
     else:
-        print('unknown generator format case')
-        import pdb;pdb.set_trace()
+        return DataGenerator_img

@@ -3,57 +3,20 @@ import numpy as np
 import h5py
 import json
 from utils.fastMRI_utils import image_from_kspace, crop, fft, ifft
+from progress.bar import IncrementalBar
 # import matplotlib.pyplot as plt
 
 # TODO use mongoDB to handle file locations
 
-def prepare_image(kdata_raw,crop_size=(320,320),mask=None):
-
-    image_clean = ifft(kdata_raw)
-
-    if crop:
-        image_clean = crop(image_clean,size=crop_size)
-    
-    kdata_clean = fft(image_clean)
-    # imtest = ifft(kdata_clean)
-
-    # fig, axs = plt.subplots(3,2, figsize=(20, 20))
-    # fig.subplots_adjust(hspace=0.1, wspace=0.1)
-    # axs = axs.ravel()
-    # axs[0].imshow(np.abs(imtest))
-    # axs[1].imshow(np.angle(imtest))
-    # plt.show()
-
-    kdata_clean_abs = np.abs(kdata_clean)
-    kdata_clean_angle = np.angle(kdata_clean)
-    kdata_clean_abs /= np.amax(kdata_clean_abs)
-
-    kdata_clean = kdata_clean_abs * (np.cos(kdata_clean_angle) + 1j*np.sin(kdata_clean_angle))
-    # imtest_2 = ifft(kdata_clean_2)
-
-    # fig, axs = plt.subplots(2,2, figsize=(20, 20))
-    # fig.subplots_adjust(hspace=0.1, wspace=0.1)
-    # axs = axs.ravel()
-    # axs[0].imshow(np.abs(imtest))
-    # axs[1].imshow(np.angle(imtest))
-    # axs[2].imshow(np.abs(imtest_2))
-    # axs[3].imshow(np.angle(imtest_2))
-    # plt.show()
-    # import pdb;pdb.set_trace()
-    if mask:
-        kdata = mask(kdata_clean)
-    else:
-        kdata = kdata_clean
-
-    image = ifft(kdata)
-    
-    return kdata, kdata_clean, image, image_clean
-    
+def prepare_loic_dataset():
+    pass
 
 def prepare_datasets(datapath, workdirpath, dataset_type, 
     image_shape=(256,256),
     input_mask=None,
-    fraction=None, n_slice_per_file=None):
+    fraction=None, n_slice_per_file=None,
+    absphase_img=False,absphase_kspace=False,
+    normalise_image=True, center_normalised_values=True):
     """
     Prepares the work directory, and prepares data into easy-to-used, eventually masked data.
     """
@@ -70,7 +33,11 @@ def prepare_datasets(datapath, workdirpath, dataset_type,
 
     index_dict = {}
 
+    if files != []:
+        bar = IncrementalBar('{} dataset_files'.format(dataset_type), max = len(files))
+
     for f in files:
+
         filepath = os.path.join(output_dir,f)
         if os.path.isfile(filepath):
             continue
@@ -92,21 +59,92 @@ def prepare_datasets(datapath, workdirpath, dataset_type,
         k = 0
         imin = int(np.floor(h5f['kspace'].shape[0]/2 - n_slices/2))
         imax = imin + n_slices
-        for i, slic in enumerate(h5f['kspace']):
+        for i, kdata_raw in enumerate(h5f['kspace']):
             if i<imin or i>=imax:
                 continue
-            kdata, kdata_clean, image, image_clean = prepare_image(slic, crop_size=image_shape,mask=input_mask)
-            kdata_array[k,:,:,0] = np.abs(kdata)
-            kdata_array[k,:,:,1] = np.angle(kdata)
 
-            kdata_clean_array[k,:,:,0] = np.abs(kdata_clean)
-            kdata_clean_array[k,:,:,1] = np.angle(kdata_clean)
+            ### cropping
+            image_clean = np.fft.fftshift(np.fft.ifft2(kdata_raw))
+            image_clean = crop(image_clean,size=image_shape)
+            kdata_clean = np.fft.fft2(image_clean)
 
-            image_array[k,:,:,0] = np.abs(image)
-            image_array[k,:,:,1] = np.angle(image)
+            ### normalise kspace
+            kdata_clean_abs = np.abs(kdata_clean)
+            kdata_clean_angle = np.angle(kdata_clean)
+            kdata_clean_abs /= np.amax(kdata_clean_abs)
+            kdata_clean = kdata_clean_abs * (np.cos(kdata_clean_angle) + 1j*np.sin(kdata_clean_angle))
 
-            image_clean_array[k,:,:,0] = np.abs(image_clean)
-            image_clean_array[k,:,:,1] = np.angle(image_clean)
+            ### apply mask
+            if input_mask:
+                kdata = input_mask(kdata_clean)
+            else:
+                kdata = kdata_clean
+            import pdb;pdb.set_trace()
+
+            image = np.fft.ifft2(kdata)
+            image_clean = np.fft.ifft2(kdata_clean)
+            ### normalisation + centering values around zero
+            if normalise_image:
+
+                image_clean_abs = np.abs(image_clean)
+                image_clean_angle = np.angle(image_clean)
+                image_clean_abs = image_clean_abs/np.amax(image_clean_abs)
+                image_clean = image_clean_abs * (np.cos(image_clean_angle) + 1j*np.sin(image_clean_angle))
+
+                image_abs = np.abs(image)
+                image_angle = np.angle(image)
+                image_abs = image_abs/np.amax(image_abs)
+                image = image_abs * (np.cos(image_angle) + 1j*np.sin(image_angle))
+
+
+            # finally filling the tables
+            if center_normalised_values:
+                if absphase_kspace:
+                    kdata_array[k,:,:,0] = 2*np.abs(kdata)-1
+                    kdata_array[k,:,:,1] = np.angle(kdata)
+                    kdata_clean_array[k,:,:,0] = 2*np.abs(kdata_clean)-1
+                    kdata_clean_array[k,:,:,1] = np.angle(kdata_clean)
+                else:
+                    kdata_array[k,:,:,0] = np.real(kdata)
+                    kdata_array[k,:,:,1] = np.imag(kdata)
+                    kdata_clean_array[k,:,:,0] = np.real(kdata_clean)
+                    kdata_clean_array[k,:,:,1] = np.imag(kdata_clean)
+
+
+                if absphase_img:
+                    image_array[k,:,:,0] = 2*np.abs(image)-1
+                    image_array[k,:,:,1] = np.angle(image)
+                    image_clean_array[k,:,:,0] = 2*np.abs(image_clean)-1
+                    image_clean_array[k,:,:,1] = np.angle(image_clean)
+                else:
+                    image_array[k,:,:,0] = np.real(image)
+                    image_array[k,:,:,1] = np.imag(image)
+                    image_clean_array[k,:,:,0] = np.real(image_clean)
+                    image_clean_array[k,:,:,1] = np.imag(image_clean)
+            else:
+                if absphase_kspace:
+                    kdata_array[k,:,:,0] = np.abs(kdata)
+                    kdata_array[k,:,:,1] = np.angle(kdata)
+                    kdata_clean_array[k,:,:,0] = np.abs(kdata_clean)
+                    kdata_clean_array[k,:,:,1] = np.angle(kdata_clean)
+                else:
+                    kdata_array[k,:,:,0] = np.real(kdata)
+                    kdata_array[k,:,:,1] = np.imag(kdata)
+                    kdata_clean_array[k,:,:,0] = np.real(kdata_clean)
+                    kdata_clean_array[k,:,:,1] = np.imag(kdata_clean)
+
+
+                if absphase_img:
+                    image_array[k,:,:,0] = np.abs(image)
+                    image_array[k,:,:,1] = np.angle(image)
+                    image_clean_array[k,:,:,0] = np.abs(image_clean)
+                    image_clean_array[k,:,:,1] = np.angle(image_clean)
+                else:
+                    image_array[k,:,:,0] = np.real(image)
+                    image_array[k,:,:,1] = np.imag(image)
+                    image_clean_array[k,:,:,0] = np.real(image_clean)
+                    image_clean_array[k,:,:,1] = np.imag(image_clean)
+            import pdb;pdb.set_trace()
             k+=1
         h5f.close()
         outfile = h5py.File(filepath,'w')
@@ -115,6 +153,7 @@ def prepare_datasets(datapath, workdirpath, dataset_type,
         outfile.create_dataset('image_masked', data=image_array)
         outfile.create_dataset('image_ground_truth', data=image_clean_array)
         outfile.close()
+        bar.next()
     if index_dict!={}:
         with open(os.path.join(output_dir,'index.json'), 'w') as fp:
             json.dump(index_dict, fp)

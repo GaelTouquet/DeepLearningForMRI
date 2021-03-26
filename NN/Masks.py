@@ -68,7 +68,7 @@ class PolynomialMaskGenerator(RandomMask):
     docstring
     """
     
-    def __init__(self, imsize, poly=8,sampling_factor=0.15,distType=2,radius=0.02,dim=1):
+    def __init__(self, imsize, poly=4,sampling_factor=0.15,distType=2,radius=0.02,dim=1,seed=None):
         """
         docstring
         """
@@ -79,9 +79,11 @@ class PolynomialMaskGenerator(RandomMask):
             size = imsize
         self.dim = dim
         self.sampling_factor = sampling_factor
+        if seed:
+            np.random.seed(seed)
         self.pdf, self.pdfval =  self.genPDF(size,poly=poly,sampling_factor=sampling_factor,distType=distType,radius=radius,dim=dim)
 
-    def get_mask(self,kspace,niter=1000,deviation=0.05):
+    def get_mask(self,kspace,niter=100,deviation=0.05):
         if self.dim==2:
             dev = np.product(self.imsize)*deviation
         else:
@@ -187,3 +189,21 @@ class PolynomialMaskGenerator(RandomMask):
 
         return minIntrVec, stat, actualundersampling
 
+
+# class RadialMask(Object):
+#     """
+#     Radial 2D mask generator.
+#     """
+#     def __init__(self, acceleration, shape=(256,256)):
+#         self.acceleration = acceleration
+#         self.shape = shape
+
+#     def __call__(self, kspace):
+#         """
+#         kspace = k-space distribution of points that needs to be masked. Can be 2D or 3D.
+#         """
+#         mask = self.get_mask(kspace)
+#         return kspace * mask.astype(np.float) + 0.0
+
+#     def get_mask(self,kspace):
+#         displaced = np.random.uniform()
