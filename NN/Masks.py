@@ -1,5 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import h5py
+import os
 
 class RandomMask(object):
     """
@@ -188,6 +190,45 @@ class PolynomialMaskGenerator(RandomMask):
         actualundersampling = np.sum(minIntrVec)/np.product(minIntrVec.shape)
 
         return minIntrVec, stat, actualundersampling
+
+
+class MaskHandler(object):
+    """
+    Handles masks from a saved collection, and provides them transparently as the maskgenerator class.
+    """
+    def __init__(self, path):
+        self.path = path
+        f = h5py.File(path,'r')
+        self.n_index = f['mask'].shape[0]
+        self.indexes = np.arange(self.n_index)
+        self.index = 0
+        np.random.shuffle(self.indexes)
+
+    def get_mask(self,kspace):
+        if self.index >= self.n_index:
+            print("too many calls of mask!")
+            import pdb;pdb.set_trace()
+        h5f = h5py.File(self.path,'r')
+        mask = h5f['mask'][self.indexes[self.index]]
+        self.index += 1
+        h5f.close()
+        return mask
+
+    def __call__(self, kspace):
+        """
+        kspace = k-space distribution of points that needs to be masked. Can be 2D or 3D.
+        """
+        mask = self.get_mask(kspace)
+        return kspace * mask.astype(np.float) + 0.0
+
+def prepare_masks(maskgenerator,path,nummask,imsize=(256,256)):
+    data = np.zeros((nummask,*imsize),dtype=np.bool)
+    dummy_kspace = np.zeros(imsize)
+    for i in range(nummask):
+        data[i,:,:] = maskgenerator.get_mask(dummy_kspace)
+    h5f = h5py.File(path,'w')
+    h5f.create_dataset('mask', (nummask,*imsize), dtype=np.bool, chunks=(1,256,256), data=data)
+    h5f.close()
 
 
 # class RadialMask(Object):

@@ -82,40 +82,27 @@ def unnorm_abs(image):
 #         rec1 = [the_abs,tf.math.angle(rec1)]
 #         return tf.stack(rec1,axis=-1)
 
-def ifft_layer(realimag_kspace,realimag_img,normalise_image,center_normalised_values):
+def ifft_layer(realimag_kspace,realimag_img,img_norm):
     def actual_ifft_layer_func(kspace):
 
         k_0 = kspace[:,:,:,0]
         k_1 = kspace[:,:,:,1]
 
-
-        if realimag_kspace:
-            k_real = k_0
-            k_imag = k_1
-        else:        
-            if center_normalised_values:
-                k_0 = tf.math.scalar_mul(0.5,(k_0 + 1.))
-            k_real = k_0 * tf.math.cos(k_1)
-            k_imag = k_0 * tf.math.sin(k_1)
-
-        kspace_complex = tf.complex(k_real,k_imag)
-        # kspace_complex = tf.signal.ifftshift(kspace_complex,axes=[1,2])
+        kspace_complex = tf.complex(k_0,k_1)
+        kspace_complex = tf.signal.ifftshift(kspace_complex,axes=[1,2])
         image_complex = tf.signal.ifft2d(kspace_complex)
-        # image_complex = tf.signal.fftshift(image_complex,axes=[1,2])
-        # image_complex = tf.signal.fftshift(image_complex,axes=[1,2]) #TODO remove this line when done with Loic's data
+        image_complex = tf.signal.fftshift(image_complex,axes=[1,2])
         
+        if img_norm['tf']:
+            image_complex = img_norm['tf'](image_complex)
         # return tf.expand_dims(tf.abs(image_complex), -1)
         #loic decomment following and remove return
         if realimag_img:
             i_0 = tf.math.real(image_complex)
             i_1 = tf.math.imag(image_complex)
-            if normalise_image:
-                abs_factors = tf.math.reduce_max(tf.math.abs(image_complex),axis=[1,2])
-                i_0 = tf.math.divide(i_0, tf.expand_dims(tf.expand_dims(abs_factors,axis=1),axis=2))
-                i_1 = tf.math.divide(i_1, tf.expand_dims(tf.expand_dims(abs_factors,axis=1),axis=2))
-        # else:
-        #     i_0 = tf.math.abs(image_complex)
-        #     i_1 = tf.math.angle(image_complex)
+        else:
+            i_0 = tf.math.abs(image_complex)
+            i_1 = tf.math.angle(image_complex)
         #     if normalise_image:
         #         i_0_norm_factors = tf.math.reduce_max(i_0,axis=[1,2])
         #         i_0 = tf.math.divide(i_0, tf.expand_dims(tf.expand_dims(i_0_norm_factors,axis=1),axis=2))
@@ -231,14 +218,14 @@ realimag_kspace=True,realimag_img=True,normalise_image=True,center_normalised_va
 
     
 def reconGAN_Unet_kspace_to_img(input_shape,n_filters_kspace,depth=4,skip=False,kernel_initializer='glorot_uniform',dropout=False,
-realimag_kspace=True,realimag_img=True,normalise_image=True,center_normalised_values=True):
+realimag_kspace=True,realimag_img=True,img_norm=None):
     inputs = Input(shape=input_shape)
 
     kspace_out = reconGAN_Unet_block(inputs,n_filters_kspace,depth,skip=skip,kernel_initializer=kernel_initializer,dropout=dropout)
 
-    image_in = Lambda(ifft_layer(realimag_kspace,realimag_img,normalise_image,center_normalised_values))(kspace_out)
+    image_in = Lambda(ifft_layer(realimag_kspace,realimag_img,img_norm))(kspace_out)
 
-    return Model(inputs=inputs,outputs=image_in)
+    return Model(inputs=inputs,outputs=[kspace_out,image_in])
 
 # def find_architecture(arch_type,input_kspace,output_image,intermediate_output=False):
 #     if arch_type=='ReconGAN_Unet':

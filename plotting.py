@@ -4,8 +4,10 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
 import numpy as np
 import json
+import pickle
 import tensorflow as tf
 from NN.architectures import nrmse_2D_L2, norm_abs, unnorm_abs
+from NN.architectures_cplx import ifft_layer, reconGAN_Wnet_intermediate
 from utils.fastMRI_utils import ifft, fft
 from tensorflow.keras.models import model_from_json
 
@@ -48,7 +50,7 @@ def hf_format(a,b, is_realim, output_ri):
 def ifft_hf(a,b, is_realim, output_ri):
     a,b = hf_format(a,b, is_realim, True)
     compl = a + 1j*b
-    imgcompl = np.fft.ifft2(compl)#ifft(compl)
+    imgcompl = ifft(compl)
     if output_ri:
         return np.real(imgcompl), np.imag(imgcompl)
     else:
@@ -64,7 +66,7 @@ def fft_hf(a,b, is_realim, output_ri):
         return np.abs(imgcompl), np.angle(imgcompl)
 
 def model_output_plotting(data_files,model=None,model_path=None,plot=True, rewrite=False,only_best=True,
-display_real_imag=True, input_image=False, ifft_output=False, ir_kspace=False, ir_img=False, intermediate_output=False, display_kspaces=False):
+display_real_imag=True, input_image=False, ifft_output=False, ir_kspace=False, ir_img=False, intermediate_output=False, extra_plots=[]):
 
     if model_path is not None:
         model_files = [os.path.join(model_path, f) for f in os.listdir(model_path) if (
@@ -98,7 +100,13 @@ display_real_imag=True, input_image=False, ifft_output=False, ir_kspace=False, i
                     input_type = 'image_masked'
                 else:
                     input_type = 'kspace_masked'
-                output_model = model.predict(np.expand_dims(h5f[input_type][i,:,:,:],axis=0))
+                # output_model = model.predict(np.expand_dims(h5f[input_type][i,:,:,:],axis=0))
+                output_model = model.predict(np.expand_dims(np.expand_dims(h5f[input_type][i,:,:,:],axis=0),axis=4))
+                if intermediate_output:
+                    output_model = [np.reshape(output_model[0],(1,256,256,2)),np.reshape(output_model[1],(1,256,256,2))]
+                else:
+                    output_model = np.reshape(output_model,(1,256,256,2))
+                # output_model = [np.expand_dims(h5f['kspace_masked'][i],axis=0),np.expand_dims(h5f['image_ground_truth'][i],axis=0)]
 
                 #intermediate output
                 if intermediate_output:
@@ -134,8 +142,23 @@ display_real_imag=True, input_image=False, ifft_output=False, ir_kspace=False, i
                 if intermediate_output:
                     display_dict['Interm Output (IMG)'] = [y_ks_r, y_ks_i]
 
+                # extra plots # extra plots implemented : kspaces, kspaces_diff, images_diff
+                for plot_name in extra_plots:
+                    if plot_name=='kspaces':
+                        display_dict['Input (KSPACE)'] = [h5f['kspace_masked'][i,:,:,0],h5f['kspace_masked'][i,:,:,1]]
+                        if intermediate_output:
+                            display_dict['Inter Output (KSPACE)'] = [output_model[0][0,:,:,0],output_model[0][0,:,:,1]]
+                    elif plot_name=='kspaces_diff':
+                        if intermediate_output:
+                            display_dict['Interm_Output-Input (KSPACE)'] = [output_model[0][0,:,:,0]-h5f['kspace_masked'][i,:,:,0],
+                                output_model[0][0,:,:,1]-h5f['kspace_masked'][i,:,:,1]]
+                    elif plot_name=='images_diff':
+                        pass
+                    else:
+                        raise ValueError('Extra plot {} not implemented.'.format(plot_name))
+
                 n_display = len(display_dict)
-                fig, axs = plt.subplots(2,n_display, figsize=(100,100),dpi=300)
+                fig, axs = plt.subplots(2,n_display, figsize=(50,50))
                 axs = axs.ravel()
                 i = 0
                 for name, arr in display_dict.items():
@@ -143,44 +166,45 @@ display_real_imag=True, input_image=False, ifft_output=False, ir_kspace=False, i
                     im2 = axs[i+n_display].matshow(arr[1],cmap='gray')
                     axs[i].title.set_text(' '.join([name,atag]))
                     axs[i+n_display].title.set_text(' '.join([name,btag]))
-                    # fig.colorbar(im1, ax=axs[i])
-                    # fig.colorbar(im2, ax=axs[i+n_display])
+                    fig.colorbar(im1, ax=axs[i])
+                    fig.colorbar(im2, ax=axs[i+n_display])
                     i+=1
 
                 if plot:
                     plt.show()
                 else:
                     plt.savefig(model_file[:-2]+'png')
+                plt.close()
 
-                if display_kspaces:
-                    display_dict = {}
-                    ksa, ksb = hf_format(h5f['kspace_masked'][i,:,:,0], h5f['kspace_masked'][i,:,:,1],is_realim=ir_kspace,output_ri=display_real_imag)
-                    display_dict['Input (KS)'] = [ksa+2e-6, ksb+2e-6]
-                    if ifft_output:
-                        ksoa, ksob = hf_format(output_model[0,:,:,0],output_model[0,:,:,1],is_realim=ir_img, output_ri=display_real_imag)
-                    else:
-                        ksoa, ksob = fft_hf(output_model[0,:,:,0],output_model[0,:,:,1],is_realim=ir_img, output_ri=display_real_imag)
-                    display_dict['Output (KS)'] = [ksoa+2e-6, ksob+2e-6]
-                    ksgta, ksgtb = hf_format(h5f['kspace_ground_truth'][i,:,:,0], h5f['kspace_ground_truth'][i,:,:,1],is_realim=ir_kspace,output_ri=display_real_imag)
-                    display_dict['GT (KS)'] = [ksgta+2e-6,ksgtb+2e-6]
-                    display_dict['Output - input (KS)'] = [np.abs(ksoa-ksa)+2e-6,np.abs(ksob-ksb)+2e-6]
-                    n_display = len(display_dict)
-                    fig, axs = plt.subplots(2,n_display, figsize=(100,100))
-                    axs = axs.ravel()
-                    i = 0
-                    for name, arr in display_dict.items():
-                        im1 = axs[i].matshow(arr[0],cmap='gray',norm=LogNorm(vmin=1e-6,vmax=2), interpolation='none')
-                        im2 = axs[i+n_display].matshow(arr[1],cmap='gray',norm=LogNorm(vmin=1e-6,vmax=2), interpolation='none')
-                        axs[i].title.set_text(' '.join([name,atag]))
-                        axs[i+n_display].title.set_text(' '.join([name,btag]))
-                        fig.colorbar(im1, ax=axs[i])
-                        fig.colorbar(im2, ax=axs[i+n_display])
-                        i+=1
-                    if plot:
-                        plt.show()
-                    else:
-                        plt.savefig(model_file[:-3]+'ks'+'.png')
-                    plt.close()
+                # if display_kspaces:
+                #     display_dict = {}
+                #     ksa, ksb = hf_format(h5f['kspace_masked'][i,:,:,0], h5f['kspace_masked'][i,:,:,1],is_realim=ir_kspace,output_ri=display_real_imag)
+                #     display_dict['Input (KS)'] = [ksa+2e-6, ksb+2e-6]
+                #     if ifft_output:
+                #         ksoa, ksob = hf_format(output_model[0,:,:,0],output_model[0,:,:,1],is_realim=ir_img, output_ri=display_real_imag)
+                #     else:
+                #         ksoa, ksob = fft_hf(output_model[0,:,:,0],output_model[0,:,:,1],is_realim=ir_img, output_ri=display_real_imag)
+                #     display_dict['Output (KS)'] = [ksoa+2e-6, ksob+2e-6]
+                #     ksgta, ksgtb = hf_format(h5f['kspace_ground_truth'][i,:,:,0], h5f['kspace_ground_truth'][i,:,:,1],is_realim=ir_kspace,output_ri=display_real_imag)
+                #     display_dict['GT (KS)'] = [ksgta+2e-6,ksgtb+2e-6]
+                #     display_dict['Output - input (KS)'] = [np.abs(ksoa-ksa)+2e-6,np.abs(ksob-ksb)+2e-6]
+                #     n_display = len(display_dict)
+                #     fig, axs = plt.subplots(2,n_display, figsize=(100,100))
+                #     axs = axs.ravel()
+                #     i = 0
+                #     for name, arr in display_dict.items():
+                #         im1 = axs[i].matshow(arr[0],cmap='gray',norm=LogNorm(vmin=1e-6,vmax=2), interpolation='none')
+                #         im2 = axs[i+n_display].matshow(arr[1],cmap='gray',norm=LogNorm(vmin=1e-6,vmax=2), interpolation='none')
+                #         axs[i].title.set_text(' '.join([name,atag]))
+                #         axs[i+n_display].title.set_text(' '.join([name,btag]))
+                #         fig.colorbar(im1, ax=axs[i])
+                #         fig.colorbar(im2, ax=axs[i+n_display])
+                #         i+=1
+                #     if plot:
+                #         plt.show()
+                #     else:
+                #         plt.savefig(model_file[:-3]+'ks'+'.png')
+                #     plt.close()
         h5f.close()
 
 
@@ -218,16 +242,16 @@ def data_plot_slice(path,slice_number,plot=True,save_path=None):
 
 def data_plot(imgs,plot=True,save_path=None):#,clipimage=-1):
     n_img = len(imgs)
-    fig, axs = plt.subplots(2,n_img,figsize=(100,100))
+    fig, axs = plt.subplots(2,n_img,figsize=(50,50))
     fig.subplots_adjust(hspace=0.1, wspace=0.1)
     axs = axs.ravel()
-    vminr = np.amax(imgs[-1][:,:,0])
-    vmaxr = np.amin(imgs[-1][:,:,0])
-    vmini = np.amax(imgs[-1][:,:,1])
-    vmaxi = np.amin(imgs[-1][:,:,1])
+    vminr = np.amax(imgs[2][:,:,0])
+    vmaxr = np.amin(imgs[2][:,:,0])
+    vmini = np.amax(imgs[2][:,:,1])
+    vmaxi = np.amin(imgs[2][:,:,1])
     for i,img in enumerate(imgs):
-        axs[i].imshow(img[:,:,0],cmap='gray')#,vmin=vminr,vmax=vmaxr)
-        axs[i+n_img].imshow(img[:,:,1],cmap='gray')#,vmin=vmini,vmax=vmaxi)
+        axs[i].imshow(img[:,:,0],cmap='gray',vmin=vminr,vmax=vmaxr)
+        axs[i+n_img].imshow(img[:,:,1],cmap='gray',vmin=vmini,vmax=vmaxi)
     if save_path:
         plt.savefig(save_path)
     if plot:
@@ -237,27 +261,26 @@ def data_plot(imgs,plot=True,save_path=None):#,clipimage=-1):
 
 if __name__ == '__main__':
     tf.config.set_visible_devices([],'GPU')
-    model_path = r'D:\NN_DATA\singlecoil_acc12_ksri_imgri_normed_10midslices_densedpointmasked_nofftshift\trainingsaves_ReconGAN_Unet_kspace_to_img_intermoutput_ssim_Mar_23_13_47'
-    json_file = os.path.join(model_path,'model_save.json')
+    model_path = r'D:\NN_DATA\singlecoil_acc15_ksri_imgri_10midslices_densedpointmasked_imgnorm\trainingsaves_ReconGAN_Unet_img_to_img_intermoutput_nrmse_complex_Apr_06_18_26'
+    param_file = os.path.join(model_path,'params_save.pck')
+    with open(param_file,'rb') as pf:
+       params =  pickle.load(pf)
+    
+    json_file = os.path.join(params['train_dir'],'model_save.json')
     if os.path.isfile(json_file):
         json_file = open(json_file, 'r')
         model = model_from_json(json_file.read())
         json_file.close()
 
-    model.summary()
     data_file_path = '\\'.join(model_path.split('\\')[:-1]+['val','file1000000.h5'])
 
-    # needed from data/model
-    input_image = False
-    intermediate_output = 'kspace'
-    ifft_output = False
-    ir_kspace = True
-    ir_img = True
-
     # plotting options
+    # extra plots implemented : kspaces, kspaces_diff, images_diff
+    extra_plots = ['kspaces','kspaces_diff']
+
     display_real_imag = True
     display_kspaces=False
-    only_best=True
+    only_best=False
     plot=False
     rewrite=True
 
@@ -267,4 +290,7 @@ if __name__ == '__main__':
         data_files = [os.path.join(data_file_path, f) for f in os.listdir(data_file_path) if (
                 os.path.isfile(os.path.join(data_file_path, f)) and ('epoch' in f))]
 
-    model_output_plotting(data_files,model,model_path,plot=plot,rewrite=rewrite, only_best=only_best, intermediate_output=intermediate_output, display_real_imag=display_real_imag, input_image=input_image, ifft_output=ifft_output, ir_kspace=ir_kspace,ir_img=ir_img,display_kspaces=display_kspaces)
+    model_output_plotting(data_files,model,model_path,plot=plot,rewrite=rewrite, only_best=only_best, 
+        intermediate_output=params['intermediate_output'], display_real_imag=display_real_imag, input_image=not params['input_kspace'], 
+        ifft_output=not params['output_image'], ir_kspace=params['realimag_kspace'], ir_img=params['realimag_img'],
+        extra_plots=extra_plots)
