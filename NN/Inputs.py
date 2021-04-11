@@ -52,6 +52,8 @@ def prepare_datasets(datapath, workdirpath, dataset_type,
         kdata_clean_array = np.empty((n_slices, *image_shape, 2))
         image_array = np.empty((n_slices, *image_shape, 2))
         image_clean_array = np.empty((n_slices, *image_shape, 2))
+        mask_array = np.empty((n_slices, *image_shape))
+        inverse_mask_array = np.empty((n_slices, *image_shape))
 
         k = 0
         imin = int(np.floor(h5f['kspace'].shape[0]/2 - n_slices/2))
@@ -75,7 +77,12 @@ def prepare_datasets(datapath, workdirpath, dataset_type,
 
             ### apply mask
             if input_mask:
-                kdata = input_mask(kdata_clean)
+                mask = input_mask.get_mask(kdata_clean)
+                kdata = kdata_clean * mask + 0.0
+                mask_array[k,:,:] = mask
+                inverse_mask = mask==0
+                inverse_mask = inverse_mask.astype(np.float)
+                inverse_mask_array[k,:,:] = inverse_mask
             else:
                 kdata = kdata_clean
 
@@ -112,6 +119,8 @@ def prepare_datasets(datapath, workdirpath, dataset_type,
         outfile.create_dataset('kspace_ground_truth', data=kdata_clean_array)
         outfile.create_dataset('image_masked', data=image_array)
         outfile.create_dataset('image_ground_truth', data=image_clean_array)
+        outfile.create_dataset('mask', data=mask_array)
+        outfile.create_dataset('inverse_mask', data=inverse_mask_array)
         outfile.close()
         bar.next()
     if index_dict!={}:

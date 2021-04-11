@@ -9,11 +9,12 @@ class DataGenerator(Sequence):
     Versatile class for data generation in the IRM NN project.
     """
 
-    def __init__(self, datadir_path, data_shape, input_kspace=True, output_image=True, intermediate_output=False, batch_size=8, shuffle=True):
+    def __init__(self, datadir_path, data_shape, fraction=None, input_kspace=True, output_image=True, intermediate_output=False, batch_size=8, shuffle=True, mask=False):
         self.batch_size = batch_size
         self.input_kspace=input_kspace
         self.output_image=output_image
         self.intermediate_output=intermediate_output
+        self.mask = mask
         self.data_shape=data_shape
         self.list_IDs = []
         with open(os.path.join(datadir_path,'index.json'), 'r') as fp:
@@ -22,6 +23,8 @@ class DataGenerator(Sequence):
                 for i in range(index_dict[fname]):
                     self.list_IDs.append([fname,i])
             fp.close()
+        if fraction:
+            self.list_IDs = self.list_IDs[:int(fraction*len(self.list_IDs))]
         # with open(os.path.join(datadir_path,'format.json'), 'r') as fp:
         #     self.data_shape = json.load(fp)
         self.shuffle = shuffle
@@ -53,6 +56,8 @@ class DataGenerator(Sequence):
         #  input_kspace=True, output_image=True, intermediate_output=False
         if self.intermediate_output:
             intermediate_y = np.empty((self.batch_size, *self.data_shape))
+        if self.mask:
+            mask = np.empty((self.batch_size, 256,256))
         y = np.empty((self.batch_size, *self.data_shape))
 
         inc = 'kspace' if self.input_kspace else 'image'
@@ -69,12 +74,15 @@ class DataGenerator(Sequence):
             X[i] = np.reshape(f['{}_masked'.format(inc)][ID[1]], self.data_shape)
             if self.intermediate_output:
                 intermediate_y[i] = np.reshape(f['{}_ground_truth'.format(self.intermediate_output)][ID[1]], self.data_shape)
+            if self.mask:
+                mask[i] = np.reshape(f['inverse_mask'][ID[1]], (256,256))
             y[i] = np.reshape(f['{}_ground_truth'.format(outg)][ID[1]], self.data_shape)
         f.close()
+        if self.mask:
+            X = [X,mask]
         if self.intermediate_output:
-            return X, [intermediate_y,y]
-        else:
-            return X, y
+            y = [intermediate_y,y]
+        return X, y
 
     def on_epoch_end(self):
         """

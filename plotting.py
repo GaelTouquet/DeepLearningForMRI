@@ -6,6 +6,7 @@ import numpy as np
 import json
 import pickle
 import tensorflow as tf
+from keras.utils.vis_utils import plot_model
 from NN.architectures import nrmse_2D_L2, norm_abs, unnorm_abs
 from NN.architectures_cplx import ifft_layer, reconGAN_Wnet_intermediate
 from utils.fastMRI_utils import ifft, fft
@@ -66,7 +67,8 @@ def fft_hf(a,b, is_realim, output_ri):
         return np.abs(imgcompl), np.angle(imgcompl)
 
 def model_output_plotting(data_files,model=None,model_path=None,plot=True, rewrite=False,only_best=True,
-display_real_imag=True, input_image=False, ifft_output=False, ir_kspace=False, ir_img=False, intermediate_output=False, extra_plots=[]):
+display_real_imag=True, input_image=False, ifft_output=False, ir_kspace=False, ir_img=False, intermediate_output=False, mask_kspace=False,
+extra_plots=[]):
 
     if model_path is not None:
         model_files = [os.path.join(model_path, f) for f in os.listdir(model_path) if (
@@ -101,7 +103,10 @@ display_real_imag=True, input_image=False, ifft_output=False, ir_kspace=False, i
                 else:
                     input_type = 'kspace_masked'
                 # output_model = model.predict(np.expand_dims(h5f[input_type][i,:,:,:],axis=0))
-                output_model = model.predict(np.expand_dims(np.expand_dims(h5f[input_type][i,:,:,:],axis=0),axis=4))
+                if mask_kspace:
+                    output_model = model.predict([np.expand_dims(np.expand_dims(h5f[input_type][i,:,:,:],axis=0),axis=4),np.expand_dims(h5f['inverse_mask'][i,:,:],axis=0)])
+                else:
+                    output_model = model.predict(np.expand_dims(np.expand_dims(h5f[input_type][i,:,:,:],axis=0),axis=4))
                 if intermediate_output:
                     output_model = [np.reshape(output_model[0],(1,256,256,2)),np.reshape(output_model[1],(1,256,256,2))]
                 else:
@@ -261,7 +266,7 @@ def data_plot(imgs,plot=True,save_path=None):#,clipimage=-1):
 
 if __name__ == '__main__':
     tf.config.set_visible_devices([],'GPU')
-    model_path = r'D:\NN_DATA\singlecoil_acc15_ksri_imgri_10midslices_densedpointmasked_imgnorm\trainingsaves_ReconGAN_Unet_img_to_img_intermoutput_nrmse_complex_Apr_06_18_26'
+    model_path = r'D:\NN_DATA\singlecoil_acc15_ksri_imgri_10midslices_densedpointmasked_kspace_mask\trainingsaves_ReconGAN_Unet_kspace_to_img_intermoutput_nrmse_complex_Apr_09_19_59'
     param_file = os.path.join(model_path,'params_save.pck')
     with open(param_file,'rb') as pf:
        params =  pickle.load(pf)
@@ -272,6 +277,8 @@ if __name__ == '__main__':
         model = model_from_json(json_file.read())
         json_file.close()
 
+    model.summary()
+    # plot_model(model, to_file='model_plot.png', show_shapes=True, show_layer_names=True)
     data_file_path = '\\'.join(model_path.split('\\')[:-1]+['val','file1000000.h5'])
 
     # plotting options
@@ -292,5 +299,5 @@ if __name__ == '__main__':
 
     model_output_plotting(data_files,model,model_path,plot=plot,rewrite=rewrite, only_best=only_best, 
         intermediate_output=params['intermediate_output'], display_real_imag=display_real_imag, input_image=not params['input_kspace'], 
-        ifft_output=not params['output_image'], ir_kspace=params['realimag_kspace'], ir_img=params['realimag_img'],
+        ifft_output=not params['output_image'], ir_kspace=params['realimag_kspace'], ir_img=params['realimag_img'], mask_kspace=params['mask_kspace'],
         extra_plots=extra_plots)

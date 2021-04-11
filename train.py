@@ -11,6 +11,8 @@ from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.initializers import RandomNormal
 from tensorflow.keras.callbacks import TensorBoard
 from tensorflow.keras.models import model_from_json
+from tensorflow.keras.activations import relu
+from keras.utils.vis_utils import plot_model
 import pickle
 import numpy as np
 import os
@@ -42,21 +44,22 @@ params = {
     'kspace_norm_spe' : '',
     # network
     'batch_size' : 16,
-    'epochs' : 20,
-    'input_kspace' : False,
+    'epochs' : 200,
+    'input_kspace' : True,
     'output_image' : True,
-    'intermediate_output' : 'kspace',#'kspace','image'
+    'intermediate_output' : 'kspace',#'kspace',#'kspace','image'
+    'mask_kspace' : True,
     'realimag_img' : True,
     'realimag_kspace' : True,
     'is_complex' : True,
-    'tag' : 'cplx_theirway'
+    'tag' : 'kspace_mask'
 }
 
 img_norm = normalisation(name=params['img_norm_name'],spe=params['img_norm_spe'])
 kspace_norm = normalisation(name=params['kspace_norm_name'],spe=params['kspace_norm_spe'])
 # arch_type = 'ReconGAN_Unet'
-loss=[reduced_nrmse,nrmse]#tf.keras.losses.MeanAbsoluteError()#my_ssim
-loss_weights = [0.,1.]#[0.01,0.99]
+loss=['mae','mae']#['mae','mae']#tf.keras.losses.MeanAbsoluteError()#my_ssim
+loss_weights = [0.01,0.99]#[0.01,0.99]
 optimizer=Adam(learning_rate=1e-4)
 # generator_type = find_generator(params['input_kspace'],params['output_image'],params['intermediate_output'],is_complex=params['is_complex'])
 dropout = 0.05
@@ -71,15 +74,15 @@ else:
 input_shape = (*params['image_shape'],2,1) if params['is_complex'] else (*params['image_shape'],2)
 # model = reconGAN_Wnet((*image_shape,2), 16, 16, skip=True,realimag_img=params['realimag_img'], realimag_kspace=params['realimag_kspace'],normalise_image=normalise_image,center_normalised_values=center_normalised_values)
 # model = reconGAN_Wnet_intermediate((*image_shape,2,1), 16, 16, skip=True,realimag_img=params['realimag_img'], realimag_kspace=params['realimag_kspace'],normalise_image=normalise_image,center_normalised_values=center_normalised_values,dropout=dropout,kernel_initializer='zeros')
-model = reconGAN_Unet_kspace_to_img(input_shape, 16,skip=True,realimag_img=params['realimag_img'], realimag_kspace=params['realimag_kspace'],img_norm=img_norm)
-# model = reconGAN_Unet(input_shape, 16,skip=False,dropout=dropout)
+model = reconGAN_Unet_kspace_to_img(input_shape, 16,skip=True,realimag_img=params['realimag_img'], realimag_kspace=params['realimag_kspace'],img_norm=img_norm,mask_kspace=params['mask_kspace'],kernel_initializer='glorot_normal')
+# model = reconGAN_Unet(input_shape, 8,skip=False,depth=5,dropout=dropout,realimag_img=params['realimag_img'], realimag_kspace=params['realimag_kspace'],img_norm=img_norm, activation=relu)
 
 datatag = '_'.join([
     'ksri' if params['realimag_img'] else 'ksap',
     'imgri' if params['realimag_kspace'] else 'imgap',
     '{}midslices'.format(params['n_slice_per_file']),
     'densedpointmasked',
-    'imgnorm'
+    'kspace_mask'
 ])
 
 agenttag = '_'.join([
@@ -126,9 +129,11 @@ val_path = prepare_datasets(datapath=os.path.join(params['fast_mri_path'],'{}coi
                 img_norm=img_norm)
 
 train_gen = DataGenerator(train_path, input_shape, input_kspace=params['input_kspace'],output_image=params['output_image'],
-    intermediate_output=params['intermediate_output'],batch_size=params['batch_size'])
+    intermediate_output=params['intermediate_output'],batch_size=params['batch_size'], fraction=params['dataset_fraction'],
+    mask=params['mask_kspace'])
 val_gen = DataGenerator(val_path, input_shape, input_kspace=params['input_kspace'],output_image=params['output_image'],
-    intermediate_output=params['intermediate_output'],batch_size=params['batch_size'])
+    intermediate_output=params['intermediate_output'],batch_size=params['batch_size'], fraction=params['dataset_fraction'],
+    mask=params['mask_kspace'])
 
 # train_gen = generator_type(train_path, batch_size=params['batch_size'])
 # val_gen = generator_type(val_path, batch_size=params['batch_size'])
@@ -145,6 +150,8 @@ print('Saving model and parameters')
 model_json = model.to_json()
 with open(os.path.join(params['train_dir'],'model_save.json'),'w') as json_file:
     json_file.write(model_json)
+
+# plot_model(model, to_file=os.path.join(params['train_dir'],'model_plot.png'), show_shapes=True, show_layer_names=True)
 
 with open(os.path.join(params['train_dir'],'params_save.pck'),'wb') as json_file:
     pickle.dump(params,json_file)

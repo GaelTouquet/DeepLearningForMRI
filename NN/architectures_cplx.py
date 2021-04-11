@@ -8,27 +8,34 @@ def reduced_nrmse(y_true, y_pred):
     return tf.reduce_mean(nrmse)
 
 def my_ssim(y_true, y_pred):
-    # pred_abs = tf.math.subtract(y_pred[:,:,:,0], tf.math.reduce_min(y_pred[:,:,:,0],axis=[1,2]))
-    # pred_abs = tf.scalar_mul(tf.math.reduce_max(y_pred[:,:,:,0],axis=[1,2]),y_pred[:,:,:,0])
-    # pred_abs = tf.math.subtract( tf.constant(1.,dtype=pred_abs.dtype), tf.math.scalar_mul(2.,pred_abs))
-    #abs
-    pred_abs = tf.expand_dims(y_pred[:,:,:,0,0],axis=3)
-    # pred_abs = tf.add(pred_abs,tf.constant(1.,dtype=y_true.dtype))
-    true_abs = tf.expand_dims(y_true[:,:,:,0,0],axis=3)
-    # true_abs = tf.add(true_abs,tf.constant(1.,dtype=y_true.dtype))
-    ssim_abs = tf.image.ssim(true_abs,pred_abs,2.)
-    #phase #Loic decomment following
-    # pred_phase = tf.expand_dims(y_pred[:,:,:,1],axis=3)
-    # pred_phase = tf.add(pred_phase,tf.constant(np.pi,dtype=y_true.dtype))
-    # true_phase = tf.expand_dims(y_true[:,:,:,1],axis=3)
-    # true_phase = tf.add(true_phase,tf.constant(np.pi,dtype=y_true.dtype))
-    # ssim_phase = tf.image.ssim(true_phase,pred_phase,2*np.pi)
-    #combination
-    # total_ssim = tf.add(ssim_abs,ssim_phase)
-    total_ssim = ssim_abs #loic remove this
-    total_ssim = tf.scalar_mul(-1.,total_ssim)
-    total_ssim = tf.add(tf.constant(2.,dtype=y_true.dtype),total_ssim)
-    return total_ssim
+    tmp_pred = tf.transpose(y_pred, perm=[0,3,1,2,4])
+    tmp_true = tf.transpose(y_true, perm=[0,3,1,2,4])
+    ssim = tf.image.ssim(tmp_pred,tmp_true)
+    ssim = tf.math.reduce_mean(ssim,axis=[0,1])
+    return 1. - ssim
+
+
+    # # pred_abs = tf.math.subtract(y_pred[:,:,:,0], tf.math.reduce_min(y_pred[:,:,:,0],axis=[1,2]))
+    # # pred_abs = tf.scalar_mul(tf.math.reduce_max(y_pred[:,:,:,0],axis=[1,2]),y_pred[:,:,:,0])
+    # # pred_abs = tf.math.subtract( tf.constant(1.,dtype=pred_abs.dtype), tf.math.scalar_mul(2.,pred_abs))
+    # #abs
+    # pred_abs = tf.expand_dims(y_pred[:,:,:,0,0],axis=3)
+    # # pred_abs = tf.add(pred_abs,tf.constant(1.,dtype=y_true.dtype))
+    # true_abs = tf.expand_dims(y_true[:,:,:,0,0],axis=3)
+    # # true_abs = tf.add(true_abs,tf.constant(1.,dtype=y_true.dtype))
+    # ssim_abs = tf.image.ssim(true_abs,pred_abs,2.)
+    # #phase #Loic decomment following
+    # # pred_phase = tf.expand_dims(y_pred[:,:,:,1],axis=3)
+    # # pred_phase = tf.add(pred_phase,tf.constant(np.pi,dtype=y_true.dtype))
+    # # true_phase = tf.expand_dims(y_true[:,:,:,1],axis=3)
+    # # true_phase = tf.add(true_phase,tf.constant(np.pi,dtype=y_true.dtype))
+    # # ssim_phase = tf.image.ssim(true_phase,pred_phase,2*np.pi)
+    # #combination
+    # # total_ssim = tf.add(ssim_abs,ssim_phase)
+    # total_ssim = ssim_abs #loic remove this
+    # total_ssim = tf.scalar_mul(-1.,total_ssim)
+    # total_ssim = tf.add(tf.constant(2.,dtype=y_true.dtype),total_ssim)
+    # return total_ssim
 
 def conv2d_cplx(input_tf, num_features, kernel_size, strides=1, dilation_rate=(1, 1), use_bias=True, kernel_initializer='glorot_uniform',padding='same'):
 
@@ -38,13 +45,16 @@ def conv2d_cplx(input_tf, num_features, kernel_size, strides=1, dilation_rate=(1
     realconv = Conv2D(num_features,kernel_size=kernel_size,strides=strides,dilation_rate=dilation_rate,use_bias=use_bias,kernel_initializer=kernel_initializer,padding=padding)
     imagconv = Conv2D(num_features,kernel_size=kernel_size,strides=strides,dilation_rate=dilation_rate,use_bias=use_bias,kernel_initializer=kernel_initializer,padding=padding)
 
-    real_to_real = realconv(real_part)
-    real_to_imag = imagconv(real_part)
-    imag_to_imag = realconv(imag_part)
-    imag_to_real = imagconv(imag_part)
+    realout = realconv(real_part)
+    imagout = imagconv(imag_part)
 
-    realout = real_to_real - imag_to_real
-    imagout = real_to_imag + imag_to_imag
+    # real_to_real = realconv(real_part)
+    # real_to_imag = imagconv(real_part)
+    # imag_to_imag = realconv(imag_part)
+    # imag_to_real = imagconv(imag_part)
+
+    # realout = real_to_real - imag_to_real
+    # imagout = real_to_imag + imag_to_imag
 
     output_tf = tf.stack([realout,imagout],axis=3)
 
@@ -188,7 +198,8 @@ def ifft_layer(realimag_kspace,realimag_img,img_norm):
 
 ### ReconGAN Unets
 
-def reconGAN_Unet(input_shape,n_filters,depth=4,skip=False,kernel_initializer='glorot_uniform',dropout=False,activation=z_relu):
+def reconGAN_Unet(input_shape,n_filters,depth=4,skip=False,kernel_initializer='glorot_uniform',dropout=False,
+realimag_kspace=True,realimag_img=True,img_norm=None,activation=z_relu):
     inputs = Input(shape=input_shape)
 
     outputs = reconGAN_Unet_block(inputs,n_filters,depth,skip=skip,kernel_initializer=kernel_initializer,dropout=dropout,activation=activation)
@@ -221,11 +232,31 @@ realimag_kspace=True,realimag_img=True,img_norm=None,activation=z_relu):
 
     
 def reconGAN_Unet_kspace_to_img(input_shape,n_filters_kspace,depth=4,skip=False,kernel_initializer='glorot_uniform',dropout=False,
-realimag_kspace=True,realimag_img=True,img_norm=None,activation=z_relu):
-    inputs = Input(shape=input_shape)
+realimag_kspace=True,realimag_img=True,img_norm=None,activation=z_relu, mask_kspace=True):
+    data_input = Input(shape=input_shape)
 
-    kspace_out = reconGAN_Unet_block(inputs,n_filters_kspace,depth,skip=skip,kernel_initializer=kernel_initializer,dropout=dropout,activation=activation)
+    if mask_kspace:
+        mask_input = Input(shape=(256,256))
+
+    kspace_out = reconGAN_Unet_block(data_input,n_filters_kspace,depth,skip=skip,kernel_initializer=kernel_initializer,dropout=dropout,activation=activation)
+
+    if mask_kspace:
+        mask = tf.stack([mask_input,mask_input],axis=3)
+        mask = tf.expand_dims(mask,axis=4)
+        kspace_out = tf.math.multiply(kspace_out,mask)
+        if not skip:
+            print('Warning masking kspace but no skip, skip activated.')
+            skip=True
+    
+    if skip:
+        kspace_out = tf.math.add(kspace_out,data_input)
 
     image_in = Lambda(ifft_layer(realimag_kspace,realimag_img,img_norm))(kspace_out)
+
+    if mask_kspace:
+        inputs = [data_input,mask_input]
+    else:
+        inputs = data_input
+
 
     return Model(inputs=inputs,outputs=[kspace_out,image_in])
