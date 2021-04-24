@@ -55,10 +55,10 @@ class DataGenerator(Sequence):
         X = np.empty((self.batch_size, *self.data_shape))
         #  input_kspace=True, output_image=True, intermediate_output=False
         if self.intermediate_output:
-            intermediate_y = np.empty((self.batch_size, *self.data_shape))
+            intermediate_y = np.empty((self.batch_size, *self.data_shape),dtype=np.float32)
         if self.mask:
-            mask = np.empty((self.batch_size, 256,256))
-        y = np.empty((self.batch_size, *self.data_shape))
+            mask = np.empty((self.batch_size, 256,256),dtype=np.float32)
+        y = np.empty((self.batch_size, *self.data_shape),dtype=np.float32)
 
         inc = 'kspace' if self.input_kspace else 'image'
         outg = 'image' if self.output_image else 'kspace'

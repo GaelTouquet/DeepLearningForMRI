@@ -3,7 +3,6 @@ from NN.Inputs import prepare_datasets
 from NN.Generators import DataGenerator
 # from NN.Generators import find_generator, DataGenerator_kspace_img_interm_kspace_onlyabsimg, DataGenerator_complex
 from NN.Masks import RandomMask, CenteredRandomMask, PolynomialMaskGenerator, MaskHandler
-from NN.architectures import nrmse, nrmse_2D_L2, nrmse_2D_L1, norm_abs, unnorm_abs, my_ssim, reduced_nrmse
 from plotting import model_output_plotting
 import tensorflow as tf
 from utils.normalisation import normalisation
@@ -26,6 +25,8 @@ np.random.seed(123)  # for reproducibility
 ### parameters ###
 
 params = {
+    # name
+    'name' : 'TBD',
     # git commit
     'commit' : get_git_revisions_hash(),
     # paths
@@ -43,8 +44,9 @@ params = {
     'kspace_norm_name' : '',
     'kspace_norm_spe' : '',
     # network
-    'batch_size' : 16,
+    'batch_size' : 8,
     'epochs' : 200,
+    'kernel_size' : (10,10),
     'input_kspace' : True,
     'output_image' : True,
     'intermediate_output' : 'kspace',#'kspace',#'kspace','image'
@@ -55,11 +57,19 @@ params = {
     'tag' : 'kspace_mask'
 }
 
+
 img_norm = normalisation(name=params['img_norm_name'],spe=params['img_norm_spe'])
 kspace_norm = normalisation(name=params['kspace_norm_name'],spe=params['kspace_norm_spe'])
+
+
+if params['is_complex']:
+    from NN.architectures_cplx import my_ssim, reduced_nrmse
+else:
+    from NN.architectures import nrmse, nrmse_2D_L2, nrmse_2D_L1, norm_abs, unnorm_abs, my_ssim, reduced_nrmse
+
 # arch_type = 'ReconGAN_Unet'
-loss=['mae','mae']#['mae','mae']#tf.keras.losses.MeanAbsoluteError()#my_ssim
-loss_weights = [0.01,0.99]#[0.01,0.99]
+loss=['mae',my_ssim]#['mae','mae']#tf.keras.losses.MeanAbsoluteError()#my_ssim
+loss_weights = [0.001,0.999]#[0.01,0.99]
 optimizer=Adam(learning_rate=1e-4)
 # generator_type = find_generator(params['input_kspace'],params['output_image'],params['intermediate_output'],is_complex=params['is_complex'])
 dropout = 0.05
@@ -72,9 +82,10 @@ else:
 
 
 input_shape = (*params['image_shape'],2,1) if params['is_complex'] else (*params['image_shape'],2)
-# model = reconGAN_Wnet((*image_shape,2), 16, 16, skip=True,realimag_img=params['realimag_img'], realimag_kspace=params['realimag_kspace'],normalise_image=normalise_image,center_normalised_values=center_normalised_values)
-# model = reconGAN_Wnet_intermediate((*image_shape,2,1), 16, 16, skip=True,realimag_img=params['realimag_img'], realimag_kspace=params['realimag_kspace'],normalise_image=normalise_image,center_normalised_values=center_normalised_values,dropout=dropout,kernel_initializer='zeros')
-model = reconGAN_Unet_kspace_to_img(input_shape, 16,skip=True,realimag_img=params['realimag_img'], realimag_kspace=params['realimag_kspace'],img_norm=img_norm,mask_kspace=params['mask_kspace'],kernel_initializer='glorot_normal')
+params['input_shape'] = input_shape
+# model = reconGAN_Wnet(input_shape, 16, 16, skip=True,realimag_img=params['realimag_img'], realimag_kspace=params['realimag_kspace'],normalise_image=normalise_image,center_normalised_values=center_normalised_values)
+# model = reconGAN_Wnet_intermediate(input_shape, 16, 16, skip_image=True, kernel_size=params['kernel_size'],realimag_img=params['realimag_img'], realimag_kspace=params['realimag_kspace'],img_norm=img_norm,dropout=dropout,kernel_initializer='glorot_normal',mask_kspace=params['mask_kspace'])
+model = reconGAN_Unet_kspace_to_img(input_shape, 16,skip=True, kernel_size=params['kernel_size'],realimag_img=params['realimag_img'], realimag_kspace=params['realimag_kspace'],img_norm=img_norm,mask_kspace=params['mask_kspace'],kernel_initializer='glorot_normal')
 # model = reconGAN_Unet(input_shape, 8,skip=False,depth=5,dropout=dropout,realimag_img=params['realimag_img'], realimag_kspace=params['realimag_kspace'],img_norm=img_norm, activation=relu)
 
 datatag = '_'.join([
@@ -82,7 +93,7 @@ datatag = '_'.join([
     'imgri' if params['realimag_kspace'] else 'imgap',
     '{}midslices'.format(params['n_slice_per_file']),
     'densedpointmasked',
-    'kspace_mask'
+    'type_forssim'
 ])
 
 agenttag = '_'.join([
@@ -91,7 +102,6 @@ agenttag = '_'.join([
     'to',
     'img' if params['output_image'] else 'kspace',
     'intermoutput' if params['intermediate_output'] else '',
-    'nrmse',#'ssim'
     'complex' if params['is_complex'] else 'real'
 ])
 
@@ -176,9 +186,7 @@ model_output_plotting(data_files,model,model_path,
     intermediate_output=params['intermediate_output'], 
     display_real_imag=params['realimag_img'], input_image=not params['input_kspace'],
     ifft_output=not params['output_image'], 
-    ir_kspace=params['realimag_kspace'],ir_img=params['realimag_img'])
-
-
+    ir_kspace=params['realimag_kspace'],ir_img=params['realimag_img'],mask_kspace=params['mask_kspace'])
 
 # def write_log(callback, names, logs, batch_no,logDir):
 #     writer = tf.summary.create_file_writer(logDir)

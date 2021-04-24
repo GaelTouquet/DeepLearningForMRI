@@ -48,12 +48,12 @@ def prepare_datasets(datapath, workdirpath, dataset_type,
             n_slices = n_slice_per_file
         index_dict[filepath] = n_slices
 
-        kdata_array = np.empty((n_slices, *image_shape, 2))
-        kdata_clean_array = np.empty((n_slices, *image_shape, 2))
-        image_array = np.empty((n_slices, *image_shape, 2))
-        image_clean_array = np.empty((n_slices, *image_shape, 2))
-        mask_array = np.empty((n_slices, *image_shape))
-        inverse_mask_array = np.empty((n_slices, *image_shape))
+        kdata_array = np.empty((n_slices, *image_shape, 2), np.float32)
+        kdata_clean_array = np.empty((n_slices, *image_shape, 2), np.float32)
+        image_array = np.empty((n_slices, *image_shape, 2), np.float32)
+        image_clean_array = np.empty((n_slices, *image_shape, 2), np.float32)
+        mask_array = np.empty((n_slices, *image_shape), np.float32)
+        inverse_mask_array = np.empty((n_slices, *image_shape), np.float32)
 
         k = 0
         imin = int(np.floor(h5f['kspace'].shape[0]/2 - n_slices/2))

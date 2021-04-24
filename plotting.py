@@ -68,7 +68,7 @@ def fft_hf(a,b, is_realim, output_ri):
 
 def model_output_plotting(data_files,model=None,model_path=None,plot=True, rewrite=False,only_best=True,
 display_real_imag=True, input_image=False, ifft_output=False, ir_kspace=False, ir_img=False, intermediate_output=False, mask_kspace=False,
-extra_plots=[]):
+extra_plots=[],title=None,evaluation=True):
 
     if model_path is not None:
         model_files = [os.path.join(model_path, f) for f in os.listdir(model_path) if (
@@ -88,7 +88,7 @@ extra_plots=[]):
                 model.load_weights(model_file)
 
             for i in [7]:#range(h5f['tests'].shape[1]):
-
+                
                 #input image
                 x_r, x_i = hf_format(h5f['image_masked'][i,:,:,0], h5f['image_masked'][i,:,:,1],
                 is_realim=ir_img,output_ri=display_real_imag)
@@ -163,7 +163,14 @@ extra_plots=[]):
                         raise ValueError('Extra plot {} not implemented.'.format(plot_name))
 
                 n_display = len(display_dict)
-                fig, axs = plt.subplots(2,n_display, figsize=(50,50))
+                fig, axs = plt.subplots(2,n_display, figsize=(100,100))
+                if title:
+                    if evaluation:
+                        with open(os.path.join(model_path,'eval.json')) as f:
+                            json_eval = json.load(f)
+                        evaluation_string = ' '.join([':'.join([mname,value]) for mname, value in json_eval.items()])
+                        title = '\n'.join([title,evaluation_string])
+                    fig.suptitle(title)
                 axs = axs.ravel()
                 i = 0
                 for name, arr in display_dict.items():
@@ -266,7 +273,7 @@ def data_plot(imgs,plot=True,save_path=None):#,clipimage=-1):
 
 if __name__ == '__main__':
     tf.config.set_visible_devices([],'GPU')
-    model_path = r'D:\NN_DATA\singlecoil_acc15_ksri_imgri_10midslices_densedpointmasked_kspace_mask\trainingsaves_ReconGAN_Unet_kspace_to_img_intermoutput_nrmse_complex_Apr_09_19_59'
+    model_path = r'D:\NN_DATA\singlecoil_acc15_ksri_imgri_10midslices_densedpointmasked_type_forssim\trainingsaves_ReconGAN_Unet_kspace_to_img_intermoutput_complex_Apr_19_18_36'
     param_file = os.path.join(model_path,'params_save.pck')
     with open(param_file,'rb') as pf:
        params =  pickle.load(pf)
@@ -287,7 +294,7 @@ if __name__ == '__main__':
 
     display_real_imag = True
     display_kspaces=False
-    only_best=False
+    only_best=True
     plot=False
     rewrite=True
 
@@ -297,7 +304,9 @@ if __name__ == '__main__':
         data_files = [os.path.join(data_file_path, f) for f in os.listdir(data_file_path) if (
                 os.path.isfile(os.path.join(data_file_path, f)) and ('epoch' in f))]
 
+    name = params['name'] if 'name' in params else 'TBD'
+
     model_output_plotting(data_files,model,model_path,plot=plot,rewrite=rewrite, only_best=only_best, 
         intermediate_output=params['intermediate_output'], display_real_imag=display_real_imag, input_image=not params['input_kspace'], 
         ifft_output=not params['output_image'], ir_kspace=params['realimag_kspace'], ir_img=params['realimag_img'], mask_kspace=params['mask_kspace'],
-        extra_plots=extra_plots)
+        extra_plots=extra_plots,title=name)
