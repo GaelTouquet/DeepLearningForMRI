@@ -180,6 +180,30 @@ def reconGAN_Unet_block(input_tensor,n_filters,depth=4,skip=False,kernel_size=(3
 
     return x
 
+def dense_kspace_block(input_tensor,output_shape):
+    #assuming [batch,x,y,real/imag,channel]
+    # flat = tf.keras.layers.Flatten()(input_tensor)
+    # n_neuron = 1
+    # for i in output_shape:
+    #     n_neuron *= i
+    # n_central = 1
+    # for i in input_tensor.shape:
+    #     n_central *= i
+    # n_neuron -= n_central
+    # dense_1 = tf.keras.layers.Dense(n_neuron,activation='relu')
+    # outgoing = tf.zeros(output_shape)
+    # offset = int((output_shape[1] - input_tensor.shape[1])/2)
+    # outgoing[:,:,:output_shape[2]-offset,:,:] = tf.reshape(dense_1[:output_shape[0]*output_shape[1]*(output_shape[2]-offset)*output_shape[3]*output_shape[4]],[]
+    flat = tf.keras.layers.Flatten()(input_tensor)
+    dense_1 = tf.keras.layers.Dense(flat.shape[1],activation='relu')(flat)
+    n_neuron = 1
+    for i in output_shape:
+        n_neuron *= i
+    dense_out = tf.keras.layers.Dense(n_neuron,activation='relu')(dense_1)
+    reshaped = tf.keras.layers.Reshape(output_shape)(dense_out)
+    return reshaped
+
+
 def ifft_layer(realimag_kspace,realimag_img,img_norm):
     def actual_ifft_layer_func(kspace):
         real_part = kspace[:,:,:,0,:]
@@ -198,13 +222,62 @@ def ifft_layer(realimag_kspace,realimag_img,img_norm):
 
 ### ReconGAN Unets
 
-def reconGAN_Unet(input_shape,n_filters,depth=4,skip=False,kernel_initializer='glorot_uniform',dropout=False,
-realimag_kspace=True,realimag_img=True,img_norm=None,activation=z_relu):
+def dense_kspace_img_out(input_shape,output_shape,realimag_kspace=True,realimag_img=True,img_norm=None,mask_kspace=None):
     inputs = Input(shape=input_shape)
 
-    outputs = reconGAN_Unet_block(inputs,n_filters,depth,skip=skip,kernel_initializer=kernel_initializer,dropout=dropout,activation=activation)
-    
-    return Model(inputs=inputs,outputs=outputs)
+    if mask_kspace:
+        mask_input = Input(shape=(256,256))
+        full_inputs = Input(shape=output_shape)
+
+    outputs= dense_kspace_block(inputs,output_shape)
+
+    if mask_kspace:
+        mask = tf.stack([mask_input,mask_input],axis=3)
+        mask = tf.expand_dims(mask,axis=4)
+        outputs = tf.math.multiply(outputs,mask)
+        outputs = tf.math.add(outputs,full_inputs)
+        inputs = [full_inputs,mask_input,inputs]
+
+    outputs = Lambda(ifft_layer(realimag_kspace,realimag_img,img_norm))(outputs)
+
+    return Model(inputs=inputs,outputs=outputs,name='dense_kspace_img_out')
+
+def dense_kspace(input_shape,output_shape,mask_kspace=None):
+    inputs = Input(shape=input_shape)
+
+    if mask_kspace:
+        mask_input = Input(shape=(256,256))
+        full_inputs = Input(shape=output_shape)
+
+    outputs= dense_kspace_block(inputs,output_shape)
+
+    if mask_kspace:
+        mask = tf.stack([mask_input,mask_input],axis=3)
+        mask = tf.expand_dims(mask,axis=4)
+        outputs = tf.math.multiply(outputs,mask)
+        outputs = tf.math.add(outputs,full_inputs)
+        inputs = [full_inputs,mask_input,inputs]
+
+    return Model(inputs=inputs,outputs=outputs,name='dense_kspace')
+
+def reconGAN_Unet(input_shape,n_filters,depth=4,skip=False,kernel_initializer='glorot_uniform',dropout=False,
+realimag_kspace=True,realimag_img=True,img_norm=None,activation=None,output_shape=None,mask_kspace=None):
+    inputs = Input(shape=input_shape)
+
+    if mask_kspace:
+        mask_input = Input(shape=(256,256))
+        outputs = reconGAN_Unet_block(inputs,n_filters,depth,skip=skip,kernel_initializer=kernel_initializer,dropout=dropout,activation=activation)
+    else:
+        outputs = reconGAN_Unet_block(inputs,n_filters,depth,skip=skip,kernel_initializer=kernel_initializer,dropout=dropout,activation=activation)
+
+    if mask_kspace:
+        mask = tf.stack([mask_input,mask_input],axis=3)
+        mask = tf.expand_dims(mask,axis=4)
+        outputs = tf.math.multiply(outputs,mask)
+        outputs = tf.math.add(outputs,inputs)
+        inputs = [inputs,mask_input]
+
+    return Model(inputs=inputs,outputs=outputs,name='reconGAN_Unet')
 
 def reconGAN_Wnet(input_shape,n_filters_kspace,n_filters_img,depth=4,skip=False,kernel_initializer='glorot_uniform',dropout=False,
 realimag_kspace=True,realimag_img=True,img_norm=None,activation=z_relu):
@@ -212,38 +285,42 @@ realimag_kspace=True,realimag_img=True,img_norm=None,activation=z_relu):
 
     kspace_out = reconGAN_Unet_block(inputs,n_filters_kspace,depth,skip=skip,kernel_initializer=kernel_initializer,dropout=dropout,activation=activation)
 
+    # if mask_kspace:
+    #     mask_input = Input(shape=(256,256))
+    #     mask = tf.stack([mask_input,mask_input],axis=3)
+    #     mask = tf.expand_dims(mask,axis=4)
+    #     outputs = tf.math.multiply(outputs,mask)
+    #     outputs = tf.math.add(outputs,inputs)
+    #     inputs = [inputs,mask_input]
+
     image_in = Lambda(ifft_layer(realimag_kspace,realimag_img,img_norm))(kspace_out)
 
     image_out = reconGAN_Unet_block(image_in,n_filters_img,depth,skip=skip,kernel_initializer=kernel_initializer,dropout=dropout,activation=activation)
 
-    return Model(inputs=inputs,outputs=image_out)
+    return Model(inputs=inputs,outputs=image_out,name='reconGAN_Wnet')
 
-def reconGAN_Wnet_intermediate(input_shape,n_filters_kspace,n_filters_img,depth=4,skip_kspace=False,skip_image=False,kernel_initializer='glorot_uniform',dropout=False,
+def reconGAN_Wnet_intermediate(input_shape,n_filters_kspace,n_filters_img,depth=4,skip_kspace=False,skip_image=False,kernel_size=(3,3),kernel_initializer='glorot_uniform',dropout=False,
 realimag_kspace=True,realimag_img=True,img_norm=None,activation=z_relu, mask_kspace=True):
     data_input = Input(shape=input_shape)
 
+    kspace_out = reconGAN_Unet_block(data_input,n_filters_kspace,depth,skip=skip_kspace,kernel_size=kernel_size,kernel_initializer=kernel_initializer,dropout=dropout,activation=activation)
+
     if mask_kspace:
         mask_input = Input(shape=(256,256))
-        skip_kspace=False
-
-    kspace_out = reconGAN_Unet_block(data_input,n_filters_kspace,depth,skip=skip_kspace,kernel_initializer=kernel_initializer,dropout=dropout,activation=activation)
-
-    if mask_kspace:
         mask = tf.stack([mask_input,mask_input],axis=3)
         mask = tf.expand_dims(mask,axis=4)
         kspace_out = tf.math.multiply(kspace_out,mask)
         kspace_out = tf.math.add(kspace_out,data_input)
-
-    image_in = Lambda(ifft_layer(realimag_kspace,realimag_img,img_norm))(kspace_out)#loic: 
-
-    image_out = reconGAN_Unet_block(image_in,n_filters_img,depth,skip=skip_image,kernel_initializer=kernel_initializer,dropout=dropout,activation=activation)#loic skip=skip
-
-    if mask_kspace:
         inputs = [data_input,mask_input]
     else:
         inputs = data_input
 
-    return Model(inputs=inputs,outputs=[kspace_out,image_out])#loic : image_in instead of kspace_out
+    image_in = Lambda(ifft_layer(realimag_kspace,realimag_img,img_norm))(kspace_out)
+
+    image_out = reconGAN_Unet_block(image_in,n_filters_img,depth,skip=skip_image,kernel_size=kernel_size,kernel_initializer=kernel_initializer,dropout=dropout,activation=activation)#loic skip=skip
+
+
+    return Model(inputs=inputs,outputs=[kspace_out,image_out],name='reconGAN_Wnet_intermediate')
 
     
 def reconGAN_Unet_kspace_to_img(input_shape,n_filters_kspace,depth=4,skip=False,kernel_size=(3,3),kernel_initializer='glorot_uniform',dropout=False,
@@ -274,4 +351,4 @@ realimag_kspace=True,realimag_img=True,img_norm=None,activation=z_relu, mask_ksp
         inputs = data_input
 
 
-    return Model(inputs=inputs,outputs=[kspace_out,image_in])
+    return Model(inputs=inputs,outputs=[kspace_out,image_in],name='reconGAN_Unet_kspace_to_img')

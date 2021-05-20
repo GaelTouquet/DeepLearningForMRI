@@ -11,6 +11,7 @@ from NN.architectures import nrmse_2D_L2, norm_abs, unnorm_abs
 from NN.architectures_cplx import ifft_layer, reconGAN_Wnet_intermediate
 from utils.fastMRI_utils import ifft, fft
 from tensorflow.keras.models import model_from_json
+from matplotlib.colors import LogNorm
 
 
 def abs_and_phase(x, y=None):
@@ -68,7 +69,7 @@ def fft_hf(a,b, is_realim, output_ri):
 
 def model_output_plotting(data_files,model=None,model_path=None,plot=True, rewrite=False,only_best=True,
 display_real_imag=True, input_image=False, ifft_output=False, ir_kspace=False, ir_img=False, intermediate_output=False, mask_kspace=False,
-extra_plots=[],title=None,evaluation=True):
+extra_plots=[],title=None,evaluation=True,reduced_mask_input=False):
 
     if model_path is not None:
         model_files = [os.path.join(model_path, f) for f in os.listdir(model_path) if (
@@ -104,7 +105,13 @@ extra_plots=[],title=None,evaluation=True):
                     input_type = 'kspace_masked'
                 # output_model = model.predict(np.expand_dims(h5f[input_type][i,:,:,:],axis=0))
                 if mask_kspace:
-                    output_model = model.predict([np.expand_dims(np.expand_dims(h5f[input_type][i,:,:,:],axis=0),axis=4),np.expand_dims(h5f['inverse_mask'][i,:,:],axis=0)])
+                    if reduced_mask_input:
+                        output_model = model.predict([np.expand_dims(np.expand_dims(h5f[input_type][i,:,:,:],axis=0),axis=4),
+                        np.expand_dims(h5f['inverse_mask'][i,:,:],axis=0),
+                        np.expand_dims(np.expand_dims(h5f[input_type+'_reduced'][i,:,:,:],axis=0),axis=4)])
+                        # import pdb;pdb.set_trace()
+                    else:
+                        output_model = model.predict([np.expand_dims(np.expand_dims(h5f[input_type][i,:,:,:],axis=0),axis=4),np.expand_dims(h5f['inverse_mask'][i,:,:],axis=0)])
                 else:
                     output_model = model.predict(np.expand_dims(np.expand_dims(h5f[input_type][i,:,:,:],axis=0),axis=4))
                 if intermediate_output:
@@ -151,12 +158,20 @@ extra_plots=[],title=None,evaluation=True):
                 for plot_name in extra_plots:
                     if plot_name=='kspaces':
                         display_dict['Input (KSPACE)'] = [h5f['kspace_masked'][i,:,:,0],h5f['kspace_masked'][i,:,:,1]]
+                        if ifft_output:
+                            display_dict['Output (KSPACE)'] = [output_model[0,:,:,0],output_model[0,:,:,1]]
                         if intermediate_output:
                             display_dict['Inter Output (KSPACE)'] = [output_model[0][0,:,:,0],output_model[0][0,:,:,1]]
+                        display_dict['GT (KSPACE)'] = [h5f['kspace_ground_truth'][i,:,:,0],h5f['kspace_ground_truth'][i,:,:,1]]
                     elif plot_name=='kspaces_diff':
                         if intermediate_output:
                             display_dict['Interm_Output-Input (KSPACE)'] = [output_model[0][0,:,:,0]-h5f['kspace_masked'][i,:,:,0],
                                 output_model[0][0,:,:,1]-h5f['kspace_masked'][i,:,:,1]]
+                        if ifft_output:
+                            display_dict['Input - Output (KSPACE)'] = [h5f['kspace_masked'][i,:,:,0] - output_model[0,:,:,0],
+                            h5f['kspace_masked'][i,:,:,1] - output_model[0,:,:,1]]
+                    elif plot_name=='mask':
+                        display_dict['Mask (KSPACE)'] = [h5f['mask'][i,:,:],h5f['inverse_mask'][i,:,:]]
                     elif plot_name=='images_diff':
                         pass
                     else:
@@ -165,7 +180,7 @@ extra_plots=[],title=None,evaluation=True):
                 n_display = len(display_dict)
                 fig, axs = plt.subplots(2,n_display, figsize=(100,100))
                 if title:
-                    if evaluation:
+                    if evaluation and os.path.isfile(os.path.join(model_path,'eval.json')):
                         with open(os.path.join(model_path,'eval.json')) as f:
                             json_eval = json.load(f)
                         evaluation_string = ' '.join([':'.join([mname,value]) for mname, value in json_eval.items()])
@@ -174,8 +189,16 @@ extra_plots=[],title=None,evaluation=True):
                 axs = axs.ravel()
                 i = 0
                 for name, arr in display_dict.items():
-                    im1 = axs[i].matshow(arr[0],cmap='gray')
-                    im2 = axs[i+n_display].matshow(arr[1],cmap='gray')
+                    if 'Mask' in name:
+                        im1 = axs[i].matshow(arr[0],cmap='gray')
+                        im2 = axs[i+n_display].matshow(arr[1],cmap='gray')
+                    elif 'KSPACE' in name:
+                        compl_arr = arr[0] + 1j* arr[1]
+                        im1 = axs[i].matshow(np.abs(compl_arr)+0.01,cmap='gray',norm=LogNorm(vmin=0.01, vmax=10000))
+                        im2 = axs[i+n_display].matshow(np.angle(compl_arr),cmap='gray')
+                    else:
+                        im1 = axs[i].matshow(arr[0],cmap='gray')
+                        im2 = axs[i+n_display].matshow(arr[1],cmap='gray')
                     axs[i].title.set_text(' '.join([name,atag]))
                     axs[i+n_display].title.set_text(' '.join([name,btag]))
                     fig.colorbar(im1, ax=axs[i])
@@ -273,7 +296,7 @@ def data_plot(imgs,plot=True,save_path=None):#,clipimage=-1):
 
 if __name__ == '__main__':
     tf.config.set_visible_devices([],'GPU')
-    model_path = r'D:\NN_DATA\singlecoil_acc15_ksri_imgri_10midslices_densedpointmasked_type_forssim\trainingsaves_ReconGAN_Unet_kspace_to_img_intermoutput_complex_Apr_19_18_36'
+    model_path = r'D:\NN_DATA\singlecoil_acc15_ksri_imgri_10midslices_densedpointmasked_point_mask\trainingsaves_ReconGAN_Unet_kspace_to_img_intermoutput_complex_Apr_29_08_32'
     param_file = os.path.join(model_path,'params_save.pck')
     with open(param_file,'rb') as pf:
        params =  pickle.load(pf)
@@ -290,7 +313,7 @@ if __name__ == '__main__':
 
     # plotting options
     # extra plots implemented : kspaces, kspaces_diff, images_diff
-    extra_plots = ['kspaces','kspaces_diff']
+    extra_plots = ['kspaces','kspaces_diff','mask']
 
     display_real_imag = True
     display_kspaces=False
@@ -305,8 +328,9 @@ if __name__ == '__main__':
                 os.path.isfile(os.path.join(data_file_path, f)) and ('epoch' in f))]
 
     name = params['name'] if 'name' in params else 'TBD'
+    mask_kspace = params['mask_kspace'] if 'mask_kspace' in params else None
 
     model_output_plotting(data_files,model,model_path,plot=plot,rewrite=rewrite, only_best=only_best, 
         intermediate_output=params['intermediate_output'], display_real_imag=display_real_imag, input_image=not params['input_kspace'], 
-        ifft_output=not params['output_image'], ir_kspace=params['realimag_kspace'], ir_img=params['realimag_img'], mask_kspace=params['mask_kspace'],
-        extra_plots=extra_plots,title=name)
+        ifft_output=not params['output_image'], ir_kspace=params['realimag_kspace'], ir_img=params['realimag_img'], mask_kspace=mask_kspace,
+        extra_plots=extra_plots,title=name,reduced_mask_input=False)

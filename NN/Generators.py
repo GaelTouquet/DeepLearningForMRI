@@ -9,13 +9,14 @@ class DataGenerator(Sequence):
     Versatile class for data generation in the IRM NN project.
     """
 
-    def __init__(self, datadir_path, data_shape, fraction=None, input_kspace=True, output_image=True, intermediate_output=False, batch_size=8, shuffle=True, mask=False):
+    def __init__(self, datadir_path, data_shape, fraction=None, input_kspace=True, output_image=True, intermediate_output=False, batch_size=8, shuffle=True, mask=False, masked_reduced_input=None):
         self.batch_size = batch_size
         self.input_kspace=input_kspace
         self.output_image=output_image
         self.intermediate_output=intermediate_output
         self.mask = mask
         self.data_shape=data_shape
+        self.masked_reduced_input = masked_reduced_input
         self.list_IDs = []
         with open(os.path.join(datadir_path,'index.json'), 'r') as fp:
             index_dict = json.load(fp)
@@ -53,6 +54,8 @@ class DataGenerator(Sequence):
 
     def __data_generation(self, list_IDs_temp):
         X = np.empty((self.batch_size, *self.data_shape))
+        if self.masked_reduced_input:
+            X_reduced = np.empty((self.batch_size, *self.masked_reduced_input))
         #  input_kspace=True, output_image=True, intermediate_output=False
         if self.intermediate_output:
             intermediate_y = np.empty((self.batch_size, *self.data_shape),dtype=np.float32)
@@ -72,6 +75,8 @@ class DataGenerator(Sequence):
                 f = h5py.File(ID[0], 'r')
             
             X[i] = np.reshape(f['{}_masked'.format(inc)][ID[1]], self.data_shape)
+            if self.masked_reduced_input:
+                X_reduced[i] = np.reshape(f['{}_masked_reduced'.format(inc)][ID[1]], self.masked_reduced_input)
             if self.intermediate_output:
                 intermediate_y[i] = np.reshape(f['{}_ground_truth'.format(self.intermediate_output)][ID[1]], self.data_shape)
             if self.mask:
@@ -80,6 +85,8 @@ class DataGenerator(Sequence):
         f.close()
         if self.mask:
             X = [X,mask]
+            if self.masked_reduced_input:
+                X.append(X_reduced)
         if self.intermediate_output:
             y = [intermediate_y,y]
         return X, y

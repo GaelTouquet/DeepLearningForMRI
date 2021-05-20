@@ -70,7 +70,7 @@ class PolynomialMaskGenerator(RandomMask):
     docstring
     """
     
-    def __init__(self, imsize, poly=4,sampling_factor=0.15,distType=2,radius=0.02,dim=1,seed=None):
+    def __init__(self, imsize, poly=4,sampling_factor=0.15,distType=2,radius=0.02,dim=1,seed=None,keep_mask=False):
         """
         docstring
         """
@@ -84,8 +84,14 @@ class PolynomialMaskGenerator(RandomMask):
         if seed:
             np.random.seed(seed)
         self.pdf, self.pdfval =  self.genPDF(size,poly=poly,sampling_factor=sampling_factor,distType=distType,radius=radius,dim=dim)
+        if keep_mask:
+            self.kept_mask = self.get_mask
+        else:
+            self.kept_mask = None
 
     def get_mask(self,kspace,niter=100,deviation=0.05):
+        if self.kept_mask is not None:
+            return self.kept_mask
         if self.dim==2:
             dev = np.product(self.imsize)*deviation
         else:
@@ -191,6 +197,36 @@ class PolynomialMaskGenerator(RandomMask):
 
         return minIntrVec, stat, actualundersampling
 
+class CentralMask(object):
+
+    def __init__(self, shape):
+        self.shape = shape
+        
+    def get_mask(self, kspace):
+        mask = np.ones(self.shape,dtype=kspace.dtype)
+        return mask
+
+    def full_mask(self,kspace):
+        tmp = np.zeros(kspace.shape,dtype=kspace.dtype)
+        x_shift = int((kspace.shape[0] - self.shape[0])/2)
+        y_shift = int((kspace.shape[1] - self.shape[1])/2)
+        tmp[x_shift:-1*x_shift,y_shift:-1*y_shift] = 1.
+        return tmp
+
+    def inverse_full_mask(self,kspace):
+        full_mask = self.full_mask(kspace)
+        inverse_mask = full_mask==0
+        inverse_mask = inverse_mask.astype(np.float)
+        return inverse_mask
+
+    def __call__(self, kspace):
+        small_array = self.get_mask(kspace)
+        x_shift = int((kspace.shape[0] - small_array.shape[0])/2)
+        y_shift = int((kspace.shape[1] - small_array.shape[1])/2)
+        small_array[:,:] = kspace[x_shift:-1*x_shift,y_shift:-1*y_shift]
+        full_array_masked = np.zeros(kspace.shape,dtype=kspace.dtype)
+        full_array_masked[x_shift:-1*x_shift,y_shift:-1*y_shift] = small_array[:,:]
+        return small_array, full_array_masked
 
 class MaskHandler(object):
     """

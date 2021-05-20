@@ -2,7 +2,7 @@ from NN.Agent import Agent
 from NN.Inputs import prepare_datasets
 from NN.Generators import DataGenerator
 # from NN.Generators import find_generator, DataGenerator_kspace_img_interm_kspace_onlyabsimg, DataGenerator_complex
-from NN.Masks import RandomMask, CenteredRandomMask, PolynomialMaskGenerator, MaskHandler
+from NN.Masks import RandomMask, CenteredRandomMask, PolynomialMaskGenerator, MaskHandler, CentralMask
 from plotting import model_output_plotting
 import tensorflow as tf
 from utils.normalisation import normalisation
@@ -22,11 +22,11 @@ from utils.utils import get_git_revisions_hash
 
 np.random.seed(123)  # for reproducibility
 
-### parameters ###
+### USER PARAMETERS ###
 
 params = {
     # name
-    'name' : 'TBD',
+    'name' : 'Wnet_perf',
     # git commit
     'commit' : get_git_revisions_hash(),
     # paths
@@ -44,79 +44,91 @@ params = {
     'kspace_norm_name' : '',
     'kspace_norm_spe' : '',
     # network
-    'batch_size' : 8,
+    'batch_size' : 16,
     'epochs' : 200,
-    'kernel_size' : (10,10),
+    'kernel_size' : (5,5),
     'input_kspace' : True,
     'output_image' : True,
-    'intermediate_output' : 'kspace',#'kspace',#'kspace','image'
+    'intermediate_output' : 'kspace',#'kspace',#'kspace',#'kspace','image'
     'mask_kspace' : True,
     'realimag_img' : True,
     'realimag_kspace' : True,
     'is_complex' : True,
-    'tag' : 'kspace_mask'
+    'agent_tag' : 'Wnet_perf',
+    'data_tag' : 'poly',
 }
 
+### SOME MORE PARAMETERS AFTER ###
+
+if params['is_complex']:
+    from NN.architectures_cplx import my_ssim, reduced_nrmse
+    from NN.architectures_cplx import reconGAN_Unet, reconGAN_Unet_kspace_to_img, reconGAN_Wnet, reconGAN_Wnet_intermediate, dense_kspace, dense_kspace_img_out
+else:
+    from NN.architectures import nrmse, nrmse_2D_L2, nrmse_2D_L1, norm_abs, unnorm_abs, my_ssim, reduced_nrmse
+    from NN.architectures import reconGAN_Unet, reconGAN_Unet_kspace_to_img, reconGAN_Wnet, reconGAN_Wnet_intermediate
 
 img_norm = normalisation(name=params['img_norm_name'],spe=params['img_norm_spe'])
 kspace_norm = normalisation(name=params['kspace_norm_name'],spe=params['kspace_norm_spe'])
 
-
-if params['is_complex']:
-    from NN.architectures_cplx import my_ssim, reduced_nrmse
-else:
-    from NN.architectures import nrmse, nrmse_2D_L2, nrmse_2D_L1, norm_abs, unnorm_abs, my_ssim, reduced_nrmse
-
-# arch_type = 'ReconGAN_Unet'
-loss=['mae',my_ssim]#['mae','mae']#tf.keras.losses.MeanAbsoluteError()#my_ssim
-loss_weights = [0.001,0.999]#[0.01,0.99]
-optimizer=Adam(learning_rate=1e-4)
-# generator_type = find_generator(params['input_kspace'],params['output_image'],params['intermediate_output'],is_complex=params['is_complex'])
-dropout = 0.05
-
-
-if params['is_complex']:
-    from NN.architectures_cplx import reconGAN_Unet, reconGAN_Unet_kspace_to_img, reconGAN_Wnet, reconGAN_Wnet_intermediate
-else:
-    from NN.architectures import reconGAN_Unet, reconGAN_Unet_kspace_to_img, reconGAN_Wnet, reconGAN_Wnet_intermediate
-
-
 input_shape = (*params['image_shape'],2,1) if params['is_complex'] else (*params['image_shape'],2)
 params['input_shape'] = input_shape
+
+### MORE USER PARAMETERS ###
+
+# input_mask = PolynomialMaskGenerator(image_shape,sampling_factor=sampling_factor,dim=2)#CenteredRandomMask(acceleration=acceleration, center_fraction=(4./100.), seed=0xdeadbeef)#
+# input_mask = MaskHandler(r'D:\MRI_Masks\0p15\masks.h5')
+masked_shape = None#(40,40)
+# masked_shape=None
+input_mask = MaskHandler(r'D:\MRI_Masks\0p15\masks.h5')
+# input_mask = PolynomialMaskGenerator(params['image_shape'],sampling_factor=params['sampling_factor'],dim=1,poly=8,keep_mask=True)#CenteredRandomMask(acceleration=acceleration, center_fraction=(4./100.), seed=0xdeadbeef)#
+# input_mask = CentralMask(masked_shape)
+# full_masked_shape = (*masked_shape,2,1)
+full_masked_shape = None
+
+loss=['mae',my_ssim]#'mae', 'mse', reduced_nrmse, my_ssim, tf.keras.losses.MeanAbsoluteError()
+loss_weights = [0.001,0.999]#None
+optimizer=Adam(learning_rate=1e-4)
+dropout = 0.05
+
 # model = reconGAN_Wnet(input_shape, 16, 16, skip=True,realimag_img=params['realimag_img'], realimag_kspace=params['realimag_kspace'],normalise_image=normalise_image,center_normalised_values=center_normalised_values)
-# model = reconGAN_Wnet_intermediate(input_shape, 16, 16, skip_image=True, kernel_size=params['kernel_size'],realimag_img=params['realimag_img'], realimag_kspace=params['realimag_kspace'],img_norm=img_norm,dropout=dropout,kernel_initializer='glorot_normal',mask_kspace=params['mask_kspace'])
-model = reconGAN_Unet_kspace_to_img(input_shape, 16,skip=True, kernel_size=params['kernel_size'],realimag_img=params['realimag_img'], realimag_kspace=params['realimag_kspace'],img_norm=img_norm,mask_kspace=params['mask_kspace'],kernel_initializer='glorot_normal')
-# model = reconGAN_Unet(input_shape, 8,skip=False,depth=5,dropout=dropout,realimag_img=params['realimag_img'], realimag_kspace=params['realimag_kspace'],img_norm=img_norm, activation=relu)
+model = reconGAN_Wnet_intermediate(input_shape, 16, 16, skip_image=True, kernel_size=params['kernel_size'],realimag_img=params['realimag_img'], realimag_kspace=params['realimag_kspace'],img_norm=img_norm,dropout=dropout,kernel_initializer='glorot_normal',mask_kspace=params['mask_kspace'])
+# model = reconGAN_Unet_kspace_to_img(input_shape, 16,skip=True, kernel_size=params['kernel_size'],realimag_img=params['realimag_img'], realimag_kspace=params['realimag_kspace'],img_norm=img_norm,mask_kspace=params['mask_kspace'],kernel_initializer='glorot_normal')
+# model = reconGAN_Unet(input_shape, 8,skip=False,depth=5,dropout=dropout,realimag_img=params['realimag_img'], realimag_kspace=params['realimag_kspace'],img_norm=img_norm, activation=relu, output_shape=input_shape,mask_kspace=params['mask_kspace'])
+# model = dense_kspace(full_masked_shape,input_shape,mask_kspace=params['mask_kspace'])
+# model = dense_kspace_img_out(full_masked_shape,input_shape,realimag_img=params['realimag_img'], realimag_kspace=params['realimag_kspace'],img_norm=img_norm,mask_kspace=True)
+
+### END OF USER PARAMETERS ###
+
+
+params['model_name'] = model.name
+params['mask_name'] = input_mask.__class__.__name__ if input_mask else 'NoMask'
+
 
 datatag = '_'.join([
     'ksri' if params['realimag_img'] else 'ksap',
     'imgri' if params['realimag_kspace'] else 'imgap',
     '{}midslices'.format(params['n_slice_per_file']),
-    'densedpointmasked',
-    'type_forssim'
+    params['data_tag']
 ])
 
 agenttag = '_'.join([
-    'ReconGAN_Unet',# if model in [reconGAN_Unet,reconGAN_Unet_kspace_to_img] else 'ReconGAN_Wnet',
     'kspace' if params['input_kspace'] else 'img',
     'to',
     'img' if params['output_image'] else 'kspace',
     'intermoutput' if params['intermediate_output'] else '',
-    'complex' if params['is_complex'] else 'real'
+    'complex' if params['is_complex'] else 'real',
+    params['agent_tag']
 ])
 
-# input_mask = PolynomialMaskGenerator(image_shape,sampling_factor=sampling_factor,dim=2)#CenteredRandomMask(acceleration=acceleration, center_fraction=(4./100.), seed=0xdeadbeef)#
-input_mask = MaskHandler(r'D:\MRI_Masks\0p15\masks.h5')
 
 
-model.compile(loss = loss,optimizer=optimizer, loss_weights=loss_weights)#,tf.keras.losses.MeanAbsoluteError() loic
-# model.compile(loss=loss,optimizer=optimizer)
+model.compile(loss = loss,optimizer=optimizer, loss_weights=loss_weights)
 
 timestamp = time.strftime("%h_%d_%H_%M")
 
 name = '{}coil_acc{}_{}'.format(params['coil_type'],int(params['sampling_factor']*100),datatag)
 params['datadir'] = os.path.join(params['base_work_path'],name)
-print('\nusing Directory :\n{}\n'.format(params['datadir']))
+print('\nusing data directory :\n{}\n'.format(params['datadir']))
 if not os.path.isdir(params['datadir']):
     os.mkdir(params['datadir'])
 
@@ -128,7 +140,7 @@ train_path = prepare_datasets(datapath=os.path.join(params['fast_mri_path'],'{}c
                 n_slice_per_file=params['n_slice_per_file'],
                 realimag_img=params['realimag_img'],realimag_kspace=params['realimag_kspace'],
                 kspace_norm=kspace_norm,
-                img_norm=img_norm)
+                img_norm=img_norm, post_mask_shape=masked_shape)
 val_path = prepare_datasets(datapath=os.path.join(params['fast_mri_path'],'{}coil_val'.format(params['coil_type'])),
                 workdirpath=params['datadir'], dataset_type='val', #timestamp+
                 input_mask=input_mask, fraction=params['dataset_fraction'],
@@ -136,14 +148,14 @@ val_path = prepare_datasets(datapath=os.path.join(params['fast_mri_path'],'{}coi
                 n_slice_per_file=params['n_slice_per_file'],
                 realimag_img=params['realimag_img'],realimag_kspace=params['realimag_kspace'],
                 kspace_norm=kspace_norm,
-                img_norm=img_norm)
+                img_norm=img_norm, post_mask_shape=masked_shape)
 
 train_gen = DataGenerator(train_path, input_shape, input_kspace=params['input_kspace'],output_image=params['output_image'],
     intermediate_output=params['intermediate_output'],batch_size=params['batch_size'], fraction=params['dataset_fraction'],
-    mask=params['mask_kspace'])
+    mask=params['mask_kspace'],masked_reduced_input=full_masked_shape)
 val_gen = DataGenerator(val_path, input_shape, input_kspace=params['input_kspace'],output_image=params['output_image'],
     intermediate_output=params['intermediate_output'],batch_size=params['batch_size'], fraction=params['dataset_fraction'],
-    mask=params['mask_kspace'])
+    mask=params['mask_kspace'],masked_reduced_input=full_masked_shape)
 
 # train_gen = generator_type(train_path, batch_size=params['batch_size'])
 # val_gen = generator_type(val_path, batch_size=params['batch_size'])
@@ -154,14 +166,16 @@ val_gen = DataGenerator(val_path, input_shape, input_kspace=params['input_kspace
 
 
 params['train_dir'] = os.path.join(params['datadir'],'trainingsaves_{}_{}'.format(agenttag,timestamp))
-os.mkdir(params['train_dir'])
+print('\nusing training directory :\n{}\n'.format(params['train_dir']))
+if not os.path.isdir(params['train_dir']):
+    os.mkdir(params['train_dir'])
+else:
+    raise OSError('Train dir already exists!')
 
 print('Saving model and parameters')
 model_json = model.to_json()
 with open(os.path.join(params['train_dir'],'model_save.json'),'w') as json_file:
     json_file.write(model_json)
-
-# plot_model(model, to_file=os.path.join(params['train_dir'],'model_plot.png'), show_shapes=True, show_layer_names=True)
 
 with open(os.path.join(params['train_dir'],'params_save.pck'),'wb') as json_file:
     pickle.dump(params,json_file)
@@ -171,9 +185,12 @@ tensorboard_callback = TensorBoard(log_dir=os.path.join(params['train_dir'],'log
 save_callback = tf.keras.callbacks.ModelCheckpoint(os.path.join(params['train_dir'],'epoch{epoch:02d}.h5'), save_freq='epoch', save_best_only=False,save_weights_only=True)
 save_best_callback = tf.keras.callbacks.ModelCheckpoint(os.path.join(params['train_dir'],'best.h5'), save_freq='epoch', save_best_only=True,save_weights_only=True)
 
+model.summary()
+
 print('Training')
 history = model.fit(train_gen, validation_data=val_gen, epochs=params['epochs'], callbacks=[tensorboard_callback,save_callback,save_best_callback])#
 
+###evaluation
 
 
 ###plotting
@@ -181,12 +198,15 @@ model_path = params['train_dir']
 data_file_path = '\\'.join(model_path.split('\\')[:-1]+['val','file1000000.h5'])
 data_files = [data_file_path]
 
+extra_plots = ['kspaces','kspaces_diff','mask']
+
 model_output_plotting(data_files,model,model_path,
     plot=False,rewrite=True, only_best=True, 
     intermediate_output=params['intermediate_output'], 
     display_real_imag=params['realimag_img'], input_image=not params['input_kspace'],
     ifft_output=not params['output_image'], 
-    ir_kspace=params['realimag_kspace'],ir_img=params['realimag_img'],mask_kspace=params['mask_kspace'])
+    ir_kspace=params['realimag_kspace'],ir_img=params['realimag_img'],mask_kspace=params['mask_kspace'],title=params['name'],
+    reduced_mask_input=False,extra_plots=extra_plots)
 
 # def write_log(callback, names, logs, batch_no,logDir):
 #     writer = tf.summary.create_file_writer(logDir)

@@ -37,6 +37,7 @@ if __name__ == '__main__':
         'Unet_img_mae' : r'D:\NN_DATA\singlecoil_acc15_ksri_imgri_10midslices_densedpointmasked_imgnorm\trainingsaves_ReconGAN_Unet_img_to_img__nrmse_complex_Apr_08_08_27',
         'Unet_kspace_mae' : r'D:\NN_DATA\singlecoil_acc15_ksri_imgri_10midslices_densedpointmasked_kspace_mask\trainingsaves_ReconGAN_Unet_kspace_to_img_intermoutput_nrmse_complex_Apr_09_19_59',
         'Wnet_mask_mae' : r'D:\NN_DATA\singlecoil_acc15_ksri_imgri_10midslices_densedpointmasked_kspace_mask\trainingsaves_ReconGAN_Unet_kspace_to_img_intermoutput_nrmse_complex_Apr_12_11_55',
+        'Unet_img_ssim' : r'D:\NN_DATA\singlecoil_acc15_ksri_imgri_10midslices_densedpointmasked_simpleUnet\trainingsaves_ReconGAN_Unet_img_to_img__complex_Apr_27_14_30'
     }
 
     metrics_dict = {
@@ -48,6 +49,8 @@ if __name__ == '__main__':
     table = {}
     
     for name, path in to_evaluate.items():
+        if os.path.isfile(os.path.join(path,'eval.json')):
+            continue
         json_file = os.path.join(path,'model_save.json')
         json_file = open(json_file, 'r')
         model = model_from_json(json_file.read())
