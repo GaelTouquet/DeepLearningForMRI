@@ -98,17 +98,14 @@ def prepare_datasets(datapath, workdirpath, dataset_type,
     input_mask=None,
     fraction=None, n_slice_per_file=None,
     realimag_img=True,realimag_kspace=True,
-    kspace_norm=None,img_norm=None,post_mask_shape=None, from_dicom=False):
+    kspace_norm=None,img_norm=None,post_mask_shape=None, ncoil=1):
     """
     Prepares the work directory, and prepares data into easy-to-used, eventually masked data.
     """
     #TODO finish from_dicom implementation
     # getting the list of usable files
-    if from_dicom:
-        files = [f for f in os.listdir(datapath) if os.path.isdir(os.path.join(datapath, f))]
-    else:
-        files = [f for f in os.listdir(datapath) if (
-            os.path.isfile(os.path.join(datapath, f)) and ('.h5' in f))]
+    files = [f for f in os.listdir(datapath) if (
+        os.path.isfile(os.path.join(datapath, f)) and ('.h5' in f))]
     if fraction:
         files = files[:int(np.floor(fraction*len(files)))]
 
@@ -122,7 +119,6 @@ def prepare_datasets(datapath, workdirpath, dataset_type,
         bar = IncrementalBar('{} dataset_files'.format(dataset_type), max = len(files))
 
     for f in files:
-
         filepath = os.path.join(output_dir,f)
         if os.path.isfile(filepath):
             continue
@@ -139,36 +135,24 @@ def prepare_datasets(datapath, workdirpath, dataset_type,
         else:
             n_slices = n_slice_per_file
         index_dict[filepath] = n_slices
+        n_slices = (n_slices,ncoil)
 
         if post_mask_shape:
-            kdata_reduced_array = np.empty((n_slices, *post_mask_shape, 2), np.float32)
-        kdata_array = np.empty((n_slices, *image_shape, 2), np.float32)
-        kdata_clean_array = np.empty((n_slices, *image_shape, 2), np.float32)
-        image_array = np.empty((n_slices, *image_shape, 2), np.float32)
-        image_clean_array = np.empty((n_slices, *image_shape, 2), np.float32)
-        mask_array = np.empty((n_slices, *image_shape), np.float32)
-        inverse_mask_array = np.empty((n_slices, *image_shape), np.float32)
+            kdata_reduced_array = np.empty((*n_slices, *post_mask_shape, 2), np.float32)
+        kdata_array = np.empty((*n_slices, *image_shape, 2), np.float32)
+        kdata_clean_array = np.empty((*n_slices, *image_shape, 2), np.float32)
+        image_array = np.empty((n_slices[0], *image_shape, 2), np.float32)
+        image_clean_array = np.empty((n_slices[0], *image_shape, 2), np.float32)
+        mask_array = np.empty((n_slices[0], *image_shape), np.float32)
+        inverse_mask_array = np.empty((n_slices[0], *image_shape), np.float32)
 
         k = 0
-        imin = int(np.floor(h5f['kspace'].shape[0]/2 - n_slices/2))
-        imax = imin + n_slices
-        for i, kdata_raw in enumerate(h5f['kspace']):
+        imin = int(np.floor(h5f['kspace'].shape[0]/2 - n_slices[0]/2))
+        imax = imin + n_slices[0]
+        for i, slice in enumerate(h5f['kspace']):
             if i<imin or i>=imax:
                 continue
-
-            ### cropping
-            image_clean = ifft(kdata_raw)
-            image_clean = crop(image_clean,size=image_shape)
-
-            #normalize image
-            if img_norm['np']:
-                image_clean = img_norm['np'](image_clean)
-
-            kdata_clean = fft(image_clean)
-
-            if kspace_norm['np']:
-                kdata_clean = kspace_norm['np'](kdata_clean)
-
+            
             ### apply mask
             if input_mask:
                 if post_mask_shape:
@@ -176,36 +160,69 @@ def prepare_datasets(datapath, workdirpath, dataset_type,
                     mask_array[k,:,:] = input_mask.full_mask(kdata_clean)
                     inverse_mask_array[k,:,:] = input_mask.inverse_full_mask(kdata_clean)
                 else:
-                    mask = input_mask.get_mask(kdata_clean)
-                    kdata = kdata_clean * mask + 0.0
+                    mask = input_mask.get_mask(None)
                     mask_array[k,:,:] = mask
                     inverse_mask = mask==0
-                    inverse_mask = inverse_mask.astype(np.float)
+                    inverse_mask = inverse_mask.astype(np.float32)
                     inverse_mask_array[k,:,:] = inverse_mask
-            else:
-                kdata = kdata_clean
 
-            image = ifft(kdata)
-            image_clean = ifft(kdata_clean)
+            image_for_rss = np.zeros(image_shape, np.complex128)
+            image_clean_for_rss = np.zeros(image_shape, np.complex128)
+            for j, kdata_raw in enumerate(slice):
+                if j >= ncoil:
+                    print('Warning, not using all availeble coils!')
+                    continue
+                ### cropping
+                image_clean = ifft(kdata_raw)
+                image_clean = crop(image_clean,size=image_shape)
 
-            # filling arrays
-            if realimag_kspace:
-                kdata_array[k,:,:,0] = np.real(kdata)
-                kdata_array[k,:,:,1] = np.imag(kdata)
-                kdata_clean_array[k,:,:,0] = np.real(kdata_clean)
-                kdata_clean_array[k,:,:,1] = np.imag(kdata_clean)
-                if post_mask_shape:
-                    kdata_reduced_array[k,:,:,0] = np.real(kdata_reduced)
-                    kdata_reduced_array[k,:,:,1] = np.imag(kdata_reduced)
-            else:
-                kdata_array[k,:,:,0] = np.abs(kdata)
-                kdata_array[k,:,:,1] = np.angle(kdata)
-                kdata_clean_array[k,:,:,0] = np.abs(kdata_clean)
-                kdata_clean_array[k,:,:,1] = np.angle(kdata_clean)
-                if post_mask_shape:
-                    kdata_reduced_array[k,:,:,0] = np.abs(kdata_reduced)
-                    kdata_reduced_array[k,:,:,1] = np.angle(kdata_reduced)
+                #normalize image
+                if img_norm['np']:
+                    image_clean = img_norm['np'](image_clean)
 
+                kdata_clean = fft(image_clean)
+
+                if kspace_norm['np']:
+                    kdata_clean = kspace_norm['np'](kdata_clean)
+
+                ### apply mask
+                if input_mask:
+                    if post_mask_shape:
+                        kdata_reduced, kdata = input_mask(kdata_clean)
+                    else:
+                        # mask = input_mask.get_mask(kdata_clean)
+                        kdata = kdata_clean * mask + 0.0
+                else:
+                    kdata = kdata_clean
+
+                image = ifft(kdata)
+                image_clean = ifft(kdata_clean)
+
+                # filling arrays
+                if realimag_kspace:
+                    kdata_array[k,j,:,:,0] = np.real(kdata)
+                    kdata_array[k,j,:,:,1] = np.imag(kdata)
+                    kdata_clean_array[k,j,:,:,0] = np.real(kdata_clean)
+                    kdata_clean_array[k,j,:,:,1] = np.imag(kdata_clean)
+                    if post_mask_shape:
+                        kdata_reduced_array[k,j,:,:,0] = np.real(kdata_reduced)
+                        kdata_reduced_array[k,j,:,:,1] = np.imag(kdata_reduced)
+                else:
+                    kdata_array[k,j,:,:,0] = np.abs(kdata)
+                    kdata_array[k,j,:,:,1] = np.angle(kdata)
+                    kdata_clean_array[k,j,:,:,0] = np.abs(kdata_clean)
+                    kdata_clean_array[k,j,:,:,1] = np.angle(kdata_clean)
+                    if post_mask_shape:
+                        kdata_reduced_array[k,j,:,:,0] = np.abs(kdata_reduced)
+                        kdata_reduced_array[k,j,:,:,1] = np.angle(kdata_reduced)
+                image_for_rss += image * np.conjugate(image)
+                image_clean_for_rss += image_clean * np.conjugate(image_clean)
+            image_for_rss = np.sqrt(image_for_rss)
+            image_for_rss = image_for_rss.astype(np.float32)
+            image_clean_for_rss = np.sqrt(image_clean_for_rss)
+            image_clean_for_rss = image_clean_for_rss.astype(np.float32)
+            image = image_for_rss
+            image_clean = image_clean_for_rss
             if realimag_img:
                 image_array[k,:,:,0] = np.real(image)
                 image_array[k,:,:,1] = np.imag(image)
